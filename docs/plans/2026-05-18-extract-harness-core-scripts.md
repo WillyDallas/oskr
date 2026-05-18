@@ -165,7 +165,7 @@ assert_stdout_contains() {
 # a counter for cache-hit assertions.
 : "${GH_SHIM_FIXTURE:?GH_SHIM_FIXTURE not set}"
 : "${GH_SHIM_CALL_LOG:?GH_SHIM_CALL_LOG not set}"
-echo "$*" >> "$GH_SHIM_CALL_LOG"
+printf 'gh %s\n' "${*//$'\n'/ }" >> "$GH_SHIM_CALL_LOG"
 cat "$GH_SHIM_FIXTURE"
 ```
 
@@ -803,7 +803,7 @@ The shim needs an upgrade for this task — it now returns the discovery fixture
 #!/usr/bin/env bash
 : "${GH_SHIM_FIXTURE:?GH_SHIM_FIXTURE not set}"
 : "${GH_SHIM_CALL_LOG:?GH_SHIM_CALL_LOG not set}"
-echo "$*" >> "$GH_SHIM_CALL_LOG"
+printf 'gh %s\n' "${*//$'\n'/ }" >> "$GH_SHIM_CALL_LOG"
 # All-args fan-in: if any arg mentions 'updateProjectV2ItemFieldValue', return success blob.
 for a in "$@"; do
   if [[ "$a" == *"updateProjectV2ItemFieldValue"* ]]; then
