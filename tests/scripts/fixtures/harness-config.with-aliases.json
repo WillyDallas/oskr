@@ -1,0 +1,25 @@
+{
+  "name": "oskr-test",
+  "github": {
+    "owner": "WillyDallas",
+    "repo": "oskr",
+    "project_number": 1
+  },
+  "workflow": {
+    "kind": "gen-eval-9col",
+    "column_names": {
+      "needs_input": "Needs Developer Input",
+      "in_review": "PR Open"
+    },
+    "actionable_columns": ["needs_input", "approval", "ready", "in_review"]
+  },
+  "paths": {
+    "plans": "docs/plans",
+    "research": "docs/research",
+    "plan_archive": "docs/_local_archive"
+  },
+  "agent_context": {
+    "project_name": "Oskr Test",
+    "tech_stack": "bash + gh CLI"
+  }
+}
