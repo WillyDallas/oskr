@@ -30,7 +30,7 @@
 - [ ] `Run: test -f tests/scripts/fixtures/harness-config.sample.json && echo OK` → `Expected: stdout = "OK"`
 - [ ] `Run: jq -e '.github.owner == "WillyDallas" and .github.repo == "oskr" and (.github.project_number | type == "number")' tests/scripts/fixtures/harness-config.sample.json` → `Expected: exit 0`
 - [ ] `Run: jq -e '.workflow.actionable_columns | length == 4' tests/scripts/fixtures/harness-config.sample.json` → `Expected: exit 0`
-- [ ] `Run: jq '.' tests/scripts/fixtures/harness-config.malformed.json` → `Expected: exit 1` (malformed by design)
+- [ ] `Run: jq '.' tests/scripts/fixtures/harness-config.malformed.json` → `Expected: exit non-zero` (malformed by design; jq returns exit 5 for parse errors)
 - [ ] `Run: jq -e '.workflow.column_names["needs_input"] == "Needs Developer Input"' tests/scripts/fixtures/harness-config.with-aliases.json` → `Expected: exit 0`
 
 **Step 1: Write the failing test (verify fixtures missing)**
