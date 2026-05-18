@@ -1165,6 +1165,8 @@ Use the Wonderloom version as template; apply changes 1-4 above.
 
 **Manual gate:** the developer runs this once locally. CI integration is out of scope.
 
+**Prereq surfaced during smoke (2026-05-18):** the harness-lib discovery query uses `repository(owner: $owner, name: $repo).projectV2(number: $number)`, which only resolves if the Project v2 board is **repo-linked**. User-owned standalone projects (created at the user level without being attached to a repo) return `NOT_FOUND` and the lib dies with "GraphQL discovery failed; try: gh auth status" — misleading, since the real cause is the missing link. One-time fix: `linkProjectV2ToRepository` mutation against the project ID + repo ID. Worth a follow-on issue to either (a) teach harness-lib to fall back to `user(login:).projectV2(number:)` / `organization(login:).projectV2(number:)`, or (b) have `oskr init` (oskr#4) verify the link as a precondition and offer to create it.
+
 **Acceptance Criteria:**
 - [ ] `Run: test -f harness-config.json && jq -e '.github.owner == "WillyDallas" and .github.repo == "oskr"' harness-config.json` → `Expected: exit 0`
 - [ ] `Run: bash -n scripts/smoke/round-trip-move.sh` → `Expected: exit 0`
