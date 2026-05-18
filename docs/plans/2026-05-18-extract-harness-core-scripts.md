@@ -658,14 +658,19 @@ PATH="$SHIM_DIR:$PATH" \
     [[ \$(harness_column_name_for 'opt-planning') == 'Planning' ]] || exit 1
   "
 
-# Unknown column → non-zero + helpful stderr
-PATH="$SHIM_DIR:$PATH" \
-  HARNESS_CONFIG="$REPO_ROOT/tests/scripts/fixtures/harness-config.sample.json" \
-  GH_SHIM_CALL_LOG="$GH_SHIM_CALL_LOG" \
-  GH_SHIM_FIXTURE="$REPO_ROOT/tests/scripts/fixtures/gh-project-discovery.json" \
-  XDG_CACHE_HOME="$CACHE_DIR" \
-  bash -c "source '$REPO_ROOT/scripts/harness-lib.sh' && harness_column_option_id 'Nonsense'" 2>&1 \
-  | grep -qF "unknown column" || { echo FAIL: unknown column did not surface; exit 1; }
+# Unknown column → non-zero + helpful stderr.
+# NOTE: capture-then-grep instead of pipe; `set -o pipefail` + pipe with `||`
+# fires the FAIL branch even on intended non-zero from the inner bash -c.
+UNKNOWN_OUT=$(
+  PATH="$SHIM_DIR:$PATH" \
+    HARNESS_CONFIG="$REPO_ROOT/tests/scripts/fixtures/harness-config.sample.json" \
+    GH_SHIM_CALL_LOG="$GH_SHIM_CALL_LOG" \
+    GH_SHIM_FIXTURE="$REPO_ROOT/tests/scripts/fixtures/gh-project-discovery.json" \
+    XDG_CACHE_HOME="$CACHE_DIR" \
+    bash -c "source '$REPO_ROOT/scripts/harness-lib.sh' && harness_column_option_id 'Nonsense'" 2>&1 \
+  || true
+)
+printf '%s' "$UNKNOWN_OUT" | grep -qF "unknown column" || { echo FAIL: unknown column did not surface; exit 1; }
 
 # Aliased case
 CACHE_DIR2=$(mktemp -d); trap 'rm -rf "$SHIM_DIR" "$CACHE_DIR" "$CACHE_DIR2"' EXIT
