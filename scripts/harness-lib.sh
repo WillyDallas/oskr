@@ -209,3 +209,27 @@ harness_column_name_for() {
   options=$(_harness_status_options_json) || return 1
   printf '%s' "$options" | jq -er --arg id "$uuid" '.[] | select(.id == $id) | .name'
 }
+
+# --- Compound operations ---------------------------------------------------
+
+harness_move_issue() {
+  local item_id="$1" column="$2"
+  local project_id field_id option_id
+  project_id=$(harness_project_id) || return 1
+  field_id=$(harness_status_field_id) || return 1
+  option_id=$(harness_column_option_id "$column") || return 1
+
+  # shellcheck disable=SC2016
+  gh api graphql -f query='
+    mutation($project: ID!, $item: ID!, $field: ID!, $value: String!) {
+      updateProjectV2ItemFieldValue(input: {
+        projectId: $project
+        itemId: $item
+        fieldId: $field
+        value: { singleSelectOptionId: $value }
+      }) {
+        projectV2Item { id }
+      }
+    }
+  ' -f project="$project_id" -f item="$item_id" -f field="$field_id" -f value="$option_id"
+}
