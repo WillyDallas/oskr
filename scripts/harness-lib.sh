@@ -79,7 +79,7 @@ _harness_discover_raw() {
 }
 
 harness_project_id() {
-  _harness_discover_raw | jq -er '.data.repository.projectV2.id'
+  _harness_get_discovery | jq -er '.data.repository.projectV2.id'
 }
 
 harness_status_field_id() {
@@ -88,9 +88,44 @@ harness_status_field_id() {
 
 harness_field_id() {
   local field_name="$1"
-  _harness_discover_raw \
+  _harness_get_discovery \
     | jq -er --arg n "$field_name" '
         .data.repository.projectV2.fields.nodes[]
         | select(.name == $n) | .id
       '
+}
+
+# --- Discovery cache -------------------------------------------------------
+
+_harness_cache_dir() {
+  echo "${XDG_CACHE_HOME:-$HOME/.cache}/oskr"
+}
+
+_harness_cache_file() {
+  local owner repo number dir
+  owner=$(harness_config_get '.github.owner') || return 1
+  repo=$(harness_config_get '.github.repo')   || return 1
+  number=$(harness_config_get '.github.project_number') || return 1
+  dir=$(_harness_cache_dir)
+  echo "$dir/${number}-${owner}-${repo}.json"
+}
+
+_harness_get_discovery() {
+  local f
+  f=$(_harness_cache_file) || return 1
+  if [[ -f "$f" ]]; then
+    cat "$f"
+    return 0
+  fi
+  mkdir -p "$(dirname "$f")"
+  local raw
+  raw=$(_harness_discover_raw) || return 1
+  printf '%s' "$raw" > "$f"
+  printf '%s' "$raw"
+}
+
+harness_cache_clear() {
+  local f
+  f=$(_harness_cache_file) || return 1
+  rm -f "$f"
 }
