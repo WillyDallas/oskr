@@ -43,3 +43,54 @@ harness_config_get_array() {
   cfg=$(harness_config_path) || return 1
   jq -er "${path}[]" "$cfg"
 }
+
+# --- Project / field discovery ---------------------------------------------
+#
+# Note: this layer always hits gh; Task 5's cache layer wraps these via
+# _harness_get_discovery() which reads from / writes to disk. Until Task 5
+# lands, _harness_discover_raw() is the entry point.
+
+_harness_discover_raw() {
+  local owner number repo
+  owner=$(harness_config_get '.github.owner') || return 1
+  repo=$(harness_config_get '.github.repo')   || return 1
+  number=$(harness_config_get '.github.project_number') || return 1
+
+  # shellcheck disable=SC2016
+  gh api graphql -f query='
+    query($owner: String!, $repo: String!, $number: Int!) {
+      repository(owner: $owner, name: $repo) {
+        projectV2(number: $number) {
+          id
+          fields(first: 50) {
+            nodes {
+              ... on ProjectV2SingleSelectField {
+                id name
+                options { id name }
+              }
+              ... on ProjectV2Field { id name }
+            }
+          }
+        }
+      }
+    }
+  ' -F owner="$owner" -F repo="$repo" -F number="$number" 2>/dev/null \
+    || { _harness_die "GraphQL discovery failed; try: gh auth status"; return 1; }
+}
+
+harness_project_id() {
+  _harness_discover_raw | jq -er '.data.repository.projectV2.id'
+}
+
+harness_status_field_id() {
+  harness_field_id "Status"
+}
+
+harness_field_id() {
+  local field_name="$1"
+  _harness_discover_raw \
+    | jq -er --arg n "$field_name" '
+        .data.repository.projectV2.fields.nodes[]
+        | select(.name == $n) | .id
+      '
+}
