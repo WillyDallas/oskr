@@ -193,7 +193,7 @@ cat "$GH_SHIM_FIXTURE"
 - [ ] `Run: bash -n scripts/harness-lib.sh` → `Expected: exit 0`
 - [ ] `Run: shellcheck scripts/harness-lib.sh` → `Expected: exit 0`
 - [ ] `Run: tests/scripts/run-tests.sh` → `Expected: exit 0` (test_harness_config.sh passes)
-- [ ] `Run: (cd tests/scripts/fixtures && source ../../../scripts/harness-lib.sh && harness_config_get '.github.owner')` → `Expected: stdout = "WillyDallas"`
+- [ ] `Run: HARNESS_CONFIG=tests/scripts/fixtures/harness-config.sample.json bash -c "source scripts/harness-lib.sh && harness_config_get '.github.owner'"` → `Expected: stdout = "WillyDallas"` (PWD-discovery positive path is exercised separately in test_harness_config.sh via HARNESS_CONFIG; fixtures intentionally use the `.sample.json` suffix per Task 1)
 - [ ] Missing config dies with explicit message: `Run: (cd /tmp && source $OLDPWD/scripts/harness-lib.sh && harness_config_path 2>&1)` → `Expected: stdout contains "not in an oskr project"` and `Expected: exit non-zero`
 - [ ] Malformed JSON dies: when `HARNESS_CONFIG=tests/scripts/fixtures/harness-config.malformed.json`, `harness_config_get '.github.owner'` exits non-zero with jq error on stderr.
 
@@ -212,11 +212,16 @@ HARNESS_CONFIG="$REPO_ROOT/tests/scripts/fixtures/harness-config.sample.json" \
   bash -c "source '$REPO_ROOT/scripts/harness-lib.sh' && [[ \$(harness_config_get '.github.owner') == 'WillyDallas' ]]"
 
 # Test 2: missing config exits non-zero
+# NOTE: capture-then-grep rather than pipe, because `set -o pipefail` would
+# fail the script when `harness_config_path` dies (intended) and grep succeeds.
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
-( cd "$TMPDIR" && \
-    HARNESS_CONFIG="" bash -c "source '$REPO_ROOT/scripts/harness-lib.sh' && harness_config_path" \
-  ) 2>&1 | grep -qF "not in an oskr project"
+TEST2_OUT=$(
+  cd "$TMPDIR" && \
+    HARNESS_CONFIG="" bash -c "source '$REPO_ROOT/scripts/harness-lib.sh' && harness_config_path" 2>&1 \
+  || true
+)
+grep -qF "not in an oskr project" <<<"$TEST2_OUT"
 
 # Test 3: malformed JSON propagates jq error
 HARNESS_CONFIG="$REPO_ROOT/tests/scripts/fixtures/harness-config.malformed.json" \
