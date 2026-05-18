@@ -129,3 +129,83 @@ harness_cache_clear() {
   f=$(_harness_cache_file) || return 1
   rm -f "$f"
 }
+
+# --- Column resolution -----------------------------------------------------
+
+_harness_normalize_slug() {
+  local s="$1"
+  s=$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]' | tr ' ' '_')
+  printf '%s' "$s"
+}
+
+# Canonical slug → default display name
+_harness_default_name_for_slug() {
+  case "$1" in
+    backlog)     echo "Backlog" ;;
+    research)    echo "Research" ;;
+    needs_input) echo "Needs Input" ;;
+    planning)    echo "Planning" ;;
+    approval)    echo "Approval" ;;
+    ready)       echo "Ready" ;;
+    in_progress) echo "In Progress" ;;
+    in_review)   echo "In Review" ;;
+    done)        echo "Done" ;;
+    *)           return 1 ;;
+  esac
+}
+
+# Echoes the display name to look up in the GraphQL Status options.
+# Honors workflow.column_names[<slug>] aliasing.
+_harness_display_name_for() {
+  local input="$1" slug cfg alias
+  slug=$(_harness_normalize_slug "$input")
+  cfg=$(harness_config_path) || return 1
+  alias=$(jq -r --arg s "$slug" '.workflow.column_names[$s] // ""' "$cfg")
+  if [[ -n "$alias" ]]; then
+    printf '%s' "$alias"
+    return 0
+  fi
+  if _harness_default_name_for_slug "$slug" >/dev/null 2>&1; then
+    _harness_default_name_for_slug "$slug"
+    return 0
+  fi
+  # input was neither a recognized slug nor a defined alias key — pass through
+  # in case it's a literal display name typed by the caller (e.g. "Needs Developer Input").
+  printf '%s' "$input"
+}
+
+_harness_status_options_json() {
+  _harness_get_discovery \
+    | jq -c '
+        .data.repository.projectV2.fields.nodes[]
+        | select(.name == "Status") | .options
+      '
+}
+
+harness_column_option_id() {
+  local input="$1" display options uuid
+  display=$(_harness_display_name_for "$input") || return 1
+  options=$(_harness_status_options_json) || return 1
+  uuid=$(printf '%s' "$options" | jq -r --arg n "$display" '.[] | select(.name == $n) | .id')
+
+  if [[ -z "$uuid" ]]; then
+    # lazy re-discover once
+    harness_cache_clear
+    options=$(_harness_status_options_json) || return 1
+    uuid=$(printf '%s' "$options" | jq -r --arg n "$display" '.[] | select(.name == $n) | .id')
+  fi
+
+  if [[ -z "$uuid" ]]; then
+    local valid
+    valid=$(printf '%s' "$options" | jq -r '[.[] | .name] | join(", ")')
+    _harness_die "unknown column '$input' (looked up as '$display'); valid: $valid"
+    return 1
+  fi
+  printf '%s' "$uuid"
+}
+
+harness_column_name_for() {
+  local uuid="$1" options
+  options=$(_harness_status_options_json) || return 1
+  printf '%s' "$options" | jq -er --arg id "$uuid" '.[] | select(.id == $id) | .name'
+}
