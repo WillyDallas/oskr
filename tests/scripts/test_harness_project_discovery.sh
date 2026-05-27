@@ -22,7 +22,7 @@ PATH="$SHIM_DIR:$PATH" \
   GH_SHIM_FIXTURE="$GH_SHIM_FIXTURE" \
   XDG_CACHE_HOME="$XDG_CACHE_HOME" \
   bash -c "
-    source '$REPO_ROOT/scripts/harness-lib.sh'
+    source '$REPO_ROOT/bin/harness-lib.sh'
     [[ \$(harness_project_id) == 'PVT_kwTEST123' ]] || { echo FAIL project_id; exit 1; }
     [[ \$(harness_status_field_id) == 'PVTSSF_statusTEST' ]] || { echo FAIL status_field_id; exit 1; }
     [[ \$(harness_field_id 'Priority') == 'PVTSSF_priorityTEST' ]] || { echo FAIL priority_field_id; exit 1; }

@@ -2,8 +2,8 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-DISPATCHER="$REPO_ROOT/scripts/board-dispatcher.sh"
-HARNESS_LIB="$REPO_ROOT/scripts/harness-lib.sh"
+DISPATCHER="$REPO_ROOT/bin/board-dispatcher.sh"
+HARNESS_LIB="$REPO_ROOT/bin/harness-lib.sh"
 
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/lib/assert.sh"

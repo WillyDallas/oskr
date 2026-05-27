@@ -17,7 +17,7 @@ PATH="$SHIM_DIR:$PATH" \
   GH_SHIM_FIXTURE="$REPO_ROOT/tests/scripts/fixtures/gh-project-discovery.json" \
   XDG_CACHE_HOME="$CACHE_DIR" \
   bash -c "
-    source '$REPO_ROOT/scripts/harness-lib.sh'
+    source '$REPO_ROOT/bin/harness-lib.sh'
     [[ \$(harness_column_option_id 'Planning') == 'opt-planning' ]] || exit 1
     [[ \$(harness_column_option_id 'planning') == 'opt-planning' ]] || exit 1
     [[ \$(harness_column_option_id 'Needs Input') == 'opt-needs-input' ]] || exit 1
@@ -31,7 +31,7 @@ UNKNOWN_OUT=$(PATH="$SHIM_DIR:$PATH" \
   GH_SHIM_CALL_LOG="$GH_SHIM_CALL_LOG" \
   GH_SHIM_FIXTURE="$REPO_ROOT/tests/scripts/fixtures/gh-project-discovery.json" \
   XDG_CACHE_HOME="$CACHE_DIR" \
-  bash -c "source '$REPO_ROOT/scripts/harness-lib.sh' && harness_column_option_id 'Nonsense'" 2>&1 || true)
+  bash -c "source '$REPO_ROOT/bin/harness-lib.sh' && harness_column_option_id 'Nonsense'" 2>&1 || true)
 printf '%s' "$UNKNOWN_OUT" | grep -qF "unknown column" || { echo FAIL: unknown column did not surface; exit 1; }
 
 # Aliased case
@@ -42,7 +42,7 @@ PATH="$SHIM_DIR:$PATH" \
   GH_SHIM_FIXTURE="$REPO_ROOT/tests/scripts/fixtures/gh-project-discovery-aliased.json" \
   XDG_CACHE_HOME="$CACHE_DIR2" \
   bash -c "
-    source '$REPO_ROOT/scripts/harness-lib.sh'
+    source '$REPO_ROOT/bin/harness-lib.sh'
     [[ \$(harness_column_option_id 'needs_input') == 'opt-needs-input' ]] || { echo FAIL: alias lookup; exit 1; }
     [[ \$(harness_column_option_id 'Needs Developer Input') == 'opt-needs-input' ]] || { echo FAIL: alias literal lookup; exit 1; }
   "

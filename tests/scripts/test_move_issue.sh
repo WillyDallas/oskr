@@ -18,7 +18,7 @@ env -i \
   GH_SHIM_FIXTURE="$REPO_ROOT/tests/scripts/fixtures/gh-project-discovery.json" \
   XDG_CACHE_HOME="$CACHE_DIR" \
   HARNESS_TOKEN_REPORT="off" \
-  bash "$REPO_ROOT/scripts/move-issue.sh" "PVTI_test" "Planning" >/dev/null
+  bash "$REPO_ROOT/bin/move-issue.sh" "PVTI_test" "Planning" >/dev/null
 
 grep -qF 'updateProjectV2ItemFieldValue' "$GH_SHIM_CALL_LOG" || { echo FAIL: mutation not invoked; exit 1; }
 grep -qF 'opt-planning' "$GH_SHIM_CALL_LOG" || { echo FAIL: planning option UUID not in mutation call; exit 1; }

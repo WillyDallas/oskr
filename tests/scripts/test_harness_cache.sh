@@ -16,7 +16,7 @@ PATH="$SHIM_DIR:$PATH" \
   GH_SHIM_FIXTURE="$REPO_ROOT/tests/scripts/fixtures/gh-project-discovery.json" \
   XDG_CACHE_HOME="$CACHE_DIR" \
   bash -c "
-    source '$REPO_ROOT/scripts/harness-lib.sh'
+    source '$REPO_ROOT/bin/harness-lib.sh'
     harness_project_id >/dev/null
     harness_status_field_id >/dev/null
     harness_field_id 'Priority' >/dev/null
