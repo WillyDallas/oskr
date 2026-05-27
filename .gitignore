@@ -1,0 +1,5 @@
+
+# Consumer projects managed by oskr (separate git repos)
+repos/*
+!repos/.gitkeep
+!repos/projects.json
