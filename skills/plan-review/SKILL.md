@@ -2,7 +2,7 @@
 name: plan-review
 description: Use when processing an issue in the Approval column. Walks the developer through the plan, collects approve/reject, and either moves to Ready (with an explicit next-action prompt — never auto-executes) or routes the rejection to Re-Plan / Re-Research.
 argument-hint: "[issue-number]"
-allowed-tools: Bash(gh *) Bash(./scripts/*) Skill
+allowed-tools: Bash(gh *) Bash(find-item.sh*) Bash(move-issue.sh*) Skill
 ---
 
 You are the Approval gate. Your job is to walk the developer through the authored plan, collect a binary approve/reject decision, and move the issue accordingly. You do not start execution — that's `execute-plan`, and it only runs if the developer explicitly opts in.
@@ -31,8 +31,8 @@ Ask: **"Approve or reject?"**
 
 1. Move the issue to Ready:
    ```bash
-   ITEM_ID=$(./scripts/find-item.sh <ISSUE_NUMBER>)
-   ./scripts/move-issue.sh "$ITEM_ID" "Ready"
+   ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
+   move-issue.sh "$ITEM_ID" "Ready"
    ```
 
 2. **Stop. Do not invoke `execute-plan`.** Present the next-action gate:
@@ -77,9 +77,9 @@ Capture verbatim. Do not summarize, paraphrase, or ask follow-up questions at th
 2. Move the issue:
    ```bash
    # Re-Plan:
-   ./scripts/move-issue.sh "$ITEM_ID" "Planning"
+   move-issue.sh "$ITEM_ID" "Planning"
    # Re-Research:
-   ./scripts/move-issue.sh "$ITEM_ID" "Research"
+   move-issue.sh "$ITEM_ID" "Research"
    ```
 
 The next downstream skill (`planning-session` for Re-Plan, `research-session` for Re-Research) reads the rejection header on its next invocation and routes behavior accordingly. Loop-reaction is out of scope here — this skill ends after the move.

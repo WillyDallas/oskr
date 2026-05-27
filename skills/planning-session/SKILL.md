@@ -2,7 +2,7 @@
 name: planning-session
 description: Use when producing or revising an implementation plan for an issue in the Planning column. Reads either a `## Q&A Complete` comment (from developer-input) or a `## Plan Rejected: Re-Plan` comment (from plan-review) and runs the planner→plan-reviewer loop. Does not run Q&A — `developer-input` owns that.
 argument-hint: "[issue-number]"
-allowed-tools: Bash(gh *) Bash(./scripts/*) Bash(git add docs/plans/*) Bash(git commit -m*) Bash(git status) Bash(git diff*) Bash(git rev-parse*) Agent Skill
+allowed-tools: Bash(gh *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(git add docs/plans/*) Bash(git commit -m*) Bash(git status) Bash(git diff*) Bash(git rev-parse*) Agent Skill
 ---
 
 You are running agent-only plan generation. A developer has already resolved any Q&A (via `developer-input`), OR rejected a prior plan with feedback (via `plan-review`). Your job is to spawn the planner/evaluator loop, post the plan, and move the issue to Approval. You do not ask clarifying questions — if you find none of the expected input comments, stop and surface the error.
@@ -49,8 +49,8 @@ When DoD is still valid, update the existing plan file in place rather than crea
 5. Post a short update comment on the issue: `## Plan Revised (fast-path)` followed by a one-line diff summary (use `git diff HEAD~1 docs/plans/<PLAN_FILE>` to summarize).
 6. Move the issue back to Approval:
    ```bash
-   ITEM_ID=$(./scripts/find-item.sh <ISSUE_NUMBER>)
-   ./scripts/move-issue.sh "$ITEM_ID" "Approval"
+   ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
+   move-issue.sh "$ITEM_ID" "Approval"
    ```
 7. Skip Phase 1 and Phase 2.
 
@@ -165,8 +165,8 @@ The allowlist restricts `git add` to paths under `docs/plans/`, so any other mod
 
 2. Move the issue to Approval:
    ```bash
-   ITEM_ID=$(./scripts/find-item.sh <ISSUE_NUMBER>)
-   ./scripts/move-issue.sh "$ITEM_ID" "Approval"
+   ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
+   move-issue.sh "$ITEM_ID" "Approval"
    ```
 
 3. **Stop.** Do not invoke `plan-review` or `execute-plan`. If a developer ran this interactively, tell them: "Plan is in Approval. Run `plan-review <NUMBER>` when you're ready to review it." If the skill ran autonomously via the dispatcher, that's the end of this cycle.

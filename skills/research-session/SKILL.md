@@ -2,7 +2,7 @@
 name: research-session
 description: Use when an issue in the Backlog or Research column needs investigation. Runs the researcher → research-reviewer scope-then-execute loop. Posts findings with either clarifying questions or an approval-to-proceed request, then moves the issue to Needs Input.
 argument-hint: "[issue-number] [--spike]"
-allowed-tools: Bash(gh *) Bash(./scripts/*) Bash(git add docs/research/*) Bash(git commit -m*) Bash(git status) Bash(git diff*) Bash(git rev-parse*) Agent
+allowed-tools: Bash(gh *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(git add docs/research/*) Bash(git commit -m*) Bash(git status) Bash(git diff*) Bash(git rev-parse*) Agent
 ---
 
 You are running a research session for an issue entering the Research phase. This skill dispatches the `researcher` → `research-reviewer` loop and posts the output to the issue.
@@ -16,8 +16,8 @@ You are running a research session for an issue entering the Research phase. Thi
 
 2. Move the issue to Research (if not already):
    ```bash
-   ITEM_ID=$(./scripts/find-item.sh <ISSUE_NUMBER>)
-   ./scripts/move-issue.sh "$ITEM_ID" "Research"
+   ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
+   move-issue.sh "$ITEM_ID" "Research"
    ```
 
 ## Scoping Round (max 2 iterations)
@@ -179,7 +179,7 @@ The researcher's final output in Spike Mode MUST follow this exact 7-section str
 
 3. Move the issue to Needs Input (both branches):
    ```bash
-   ./scripts/move-issue.sh "$ITEM_ID" "Needs Input"
+   move-issue.sh "$ITEM_ID" "Needs Input"
    ```
 
 4. Tell the developer what happened:

@@ -2,7 +2,7 @@
 name: developer-input
 description: Use when processing an issue in the Needs Input column. Walks the developer through the research summary and clarifying questions, posts answers as a `## Q&A Complete` comment, moves the issue to Planning (or to Done for spikes whose Q&A hands off to follow-on issues), and stops. Planning itself is handled by `planning-session` (either run now by the developer or picked up later by the dispatcher).
 argument-hint: "[issue-number]"
-allowed-tools: Bash(gh *) Bash(source *) Bash(./scripts/*) Bash(git add docs/research/*) Bash(git commit -m*) Bash(git status) Bash(git diff*) Bash(git rev-parse*) Skill
+allowed-tools: Bash(gh *) Bash(source *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(git add docs/research/*) Bash(git commit -m*) Bash(git status) Bash(git diff*) Bash(git rev-parse*) Skill
 ---
 
 You are the Needs Input gate. Your job is to resolve the Q&A that a researcher left open, post the answers so they survive for later sessions, and move the issue forward. For most issues that's **Needs Input → Planning**; for spike issues whose Q&A hands off to follow-on issues it's **Needs Input → Done**. You do not produce the plan — `planning-session` does that.
@@ -79,8 +79,8 @@ Do not proceed until the developer confirms.
    **Non-spike issues** — move to Planning:
 
    ```bash
-   ITEM_ID=$(./scripts/find-item.sh <ISSUE_NUMBER>)
-   ./scripts/move-issue.sh "$ITEM_ID" "Planning"
+   ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
+   move-issue.sh "$ITEM_ID" "Planning"
    ```
 
    **Spike issues** — ask the developer first:
@@ -93,7 +93,7 @@ Do not proceed until the developer confirms.
    For the hand-off case, use `"Done"` instead of `"Planning"` in the move command, and additionally close the GitHub issue:
 
    ```bash
-   ./scripts/move-issue.sh "$ITEM_ID" "Done"
+   move-issue.sh "$ITEM_ID" "Done"
    gh issue close <ISSUE_NUMBER> --reason completed
    ```
 

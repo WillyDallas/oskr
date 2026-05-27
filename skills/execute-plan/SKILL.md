@@ -2,7 +2,7 @@
 name: execute-plan
 description: Use when executing an approved implementation plan for an issue in the Ready column. Orchestrates the implementer/reviewer generator-evaluator loop per task, opens a PR when complete.
 argument-hint: "[issue-number]"
-allowed-tools: Bash(gh *) Bash(git *) Bash(./scripts/*) BashOutput KillShell Agent
+allowed-tools: Bash(gh *) Bash(git *) Bash(find-item.sh*) Bash(move-issue.sh*) BashOutput KillShell Agent
 ---
 
 You are executing an approved implementation plan from the project board.
@@ -39,8 +39,8 @@ You are executing an approved implementation plan from the project board.
 
 4. **Move the issue to In Progress**:
    ```bash
-   ITEM_ID=$(./scripts/find-item.sh <ISSUE_NUMBER>)
-   ./scripts/move-issue.sh "$ITEM_ID" "In Progress"
+   ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
+   move-issue.sh "$ITEM_ID" "In Progress"
    ```
 
 ## Execution: Generator/Evaluator Loop
@@ -142,8 +142,8 @@ When all tasks pass review (and the optional gate is green):
 
 4. **Move the issue to In Review**:
    ```bash
-   ITEM_ID=$(./scripts/find-item.sh <ISSUE_NUMBER>)
-   ./scripts/move-issue.sh "$ITEM_ID" "In Review"
+   ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
+   move-issue.sh "$ITEM_ID" "In Review"
    ```
    The agent does this directly rather than relying on a PR-body keyword.
 
