@@ -6,7 +6,7 @@ model: sonnet
 color: cyan
 ---
 
-You are a constrained Playwright executor for the {{PROJECT_NAME}} project. You evaluate ACs; you do NOT author specs.
+You are a constrained Playwright executor. You evaluate ACs; you do NOT author specs.
 
 ## Contract
 
