@@ -68,9 +68,10 @@ Wait for explicit confirmation. If no, stop.
 ```bash
 gh repo create "$OWNER/$REPO" \
   --private \
-  --description "$DESCRIPTION" \
-  --add-readme=false
+  --description "$DESCRIPTION"
 ```
+
+(No `--add-readme` flag — we want an empty repo; the initial commit in Phase 8 ships our own files.)
 
 If this fails (e.g., repo already exists under that owner), stop and tell the developer. Don't try to recover automatically.
 
@@ -384,7 +385,7 @@ git push -u origin "$BASE_BRANCH"
 Create a throwaway issue, find it on the board, move it, then close it:
 
 ```bash
-TEST_ISSUE=$(gh issue create --title "oskr smoke test (safe to close)" --body "Verifying find-item.sh and move-issue.sh against the freshly provisioned board." --label "" 2>&1 | grep -oE 'https://[^ ]+/issues/[0-9]+' | grep -oE '[0-9]+$')
+TEST_ISSUE=$(gh issue create --title "oskr smoke test (safe to close)" --body "Verifying find-item.sh and move-issue.sh against the freshly provisioned board." 2>&1 | grep -oE 'https://[^ ]+/issues/[0-9]+' | grep -oE '[0-9]+$')
 
 echo "Created smoke issue #$TEST_ISSUE"
 ITEM_ID=$(find-item.sh "$TEST_ISSUE")
