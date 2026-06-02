@@ -12,9 +12,17 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+OSKR_HOME="${OSKR_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+PROJECT_DIR="${OSKR_PROJECT_DIR:-$PWD}"
 LOG_DIR="$PROJECT_DIR/logs"
 mkdir -p "$LOG_DIR"
+
+# Sanity check (dispatch-loop already validates, but board-dispatcher may be invoked standalone)
+if [[ ! -f "$PROJECT_DIR/harness-config.json" ]]; then
+  echo "[dispatcher] ERROR: $PROJECT_DIR has no harness-config.json" >&2
+  exit 1
+fi
+export HARNESS_CONFIG="$PROJECT_DIR/harness-config.json"
 
 log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOG_DIR/dispatcher.log"
@@ -145,12 +153,15 @@ else
   log "[select] RANKED total=${TOTAL_COUNT} top=${TOP_SUMMARY}"
 fi
 
-log "DISPATCH: queried board, passing to Claude"
+log "DISPATCH: queried board, passing to Claude (plugin-dir=$OSKR_HOME)"
 
 # --- Dispatch to Claude ---
+# Run in the consumer's project dir so CWD-based discovery (CLAUDE.md walk-up,
+# git context, harness-config.json) targets the right project. Spawn with
+# --plugin-dir so the inner session has access to /oskr:* skills and agents.
 cd "$PROJECT_DIR"
 
-CLAUDE_OUTPUT=$(claude -p "$(cat .claude/prompts/board-dispatcher.md)
+CLAUDE_OUTPUT=$(claude -p "$(cat "$OSKR_HOME/prompts/board-dispatcher.md")
 
 Current board state:
 $BOARD_STATE
@@ -158,7 +169,8 @@ $BOARD_STATE
 Ranked candidates (walk in ascending rank — pick the first eligible after applying comment-based filters from the prompt):
 $RANKED_CANDIDATES
 " \
-  --allowedTools "Read,Write,Edit,Glob,Grep,WebSearch,WebFetch,Bash(gh *),Bash(git *),Bash(npm *),Bash(npx *),Bash(deno *),Bash(./scripts/*),Bash(source *),Bash(bash *),Bash(chmod *),Agent,Skill" \
+  --plugin-dir "$OSKR_HOME" \
+  --allowedTools "Read,Write,Edit,Glob,Grep,WebSearch,WebFetch,Bash(gh *),Bash(git *),Bash(find-item.sh*),Bash(move-issue.sh*),Bash(source *),Bash(bash *),Bash(chmod *),Agent,Skill" \
   --max-turns 200 \
   --max-budget-usd 25.00 \
   --output-format json 2>&1)
