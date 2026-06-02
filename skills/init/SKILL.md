@@ -283,13 +283,13 @@ if [[ "$STATUS_PATH_TAKEN" == "phase" ]]; then
     "kind": "gen-eval-9col",
     "column_names": {},
     "status_field_name": "Phase",
-    "actionable_columns": ["needs_input", "approval", "ready", "in_review"]
+    "actionable_columns": ["research", "planning", "ready"]
   }'
 else
   WORKFLOW_BLOCK='"workflow": {
     "kind": "gen-eval-9col",
     "column_names": {},
-    "actionable_columns": ["needs_input", "approval", "ready", "in_review"]
+    "actionable_columns": ["research", "planning", "ready"]
   }'
 fi
 
