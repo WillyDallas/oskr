@@ -1,0 +1,11 @@
+{
+  "projects": [
+    {
+      "name": "<project-name>",
+      "path": "<absolute-path-to-the-project-checkout>",
+      "github": "<owner>/<repo>",
+      "project_number": 0,
+      "registered_at": "<ISO-8601 timestamp>"
+    }
+  ]
+}
