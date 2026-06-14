@@ -2,10 +2,18 @@
 name: execute-plan
 description: Use when executing an approved implementation plan for an issue in the Ready column. Orchestrates the implementer/reviewer generator-evaluator loop per task, opens a PR when complete.
 argument-hint: "[issue-number]"
-allowed-tools: Bash(gh *) Bash(git *) Bash(find-item.sh*) Bash(move-issue.sh*) BashOutput KillShell Agent
+allowed-tools: Bash(gh *) Bash(git *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(sync-development.sh*) Bash(sync-worktree.sh*) BashOutput KillShell Agent SendMessage
 ---
 
 You are executing an approved implementation plan from the project board.
+
+## Headless safety (read first)
+
+This skill frequently runs inside a headless (`claude -p`) dispatch session, where **ending your turn terminates the process** and background tasks are killed ~5 seconds later. There is no re-invocation when background work completes — that only exists in interactive sessions. Hard rules:
+
+- Never end your turn while work you need (tests, builds, subagents) is still running.
+- Never say "I'll resume when X completes" — you won't. Wait for X in-turn with blocking tool calls.
+- Never launch long-running work with `run_in_background` and then end the turn.
 
 ## Setup
 
@@ -21,21 +29,34 @@ You are executing an approved implementation plan from the project board.
    BASE_BRANCH="${OSKR_BASE_BRANCH:-main}"
    ```
 
-3. **Create the working branch** — must start on the base branch with a clean working tree. The dispatch-loop enforces this, but when running standalone, verify first. After the pre-flight passes, sync with `origin/$BASE_BRANCH` (fast-forward only) so the feature branch is created from the latest base — prevents teammate/dispatcher pushes from causing rebases later.
+3. **Create the working branch** — must start on the base branch with a clean working tree. The dispatch-loop enforces this, but when running standalone, verify first. After the pre-flight passes, sync the base with origin (fast-forward only, via the canonical script) so the feature branch is created from the latest base — prevents teammate/dispatcher pushes from causing rebases later.
    ```bash
    # Pre-flight: must be on base branch with no tracked uncommitted changes
    [[ "$(git rev-parse --abbrev-ref HEAD)" == "$BASE_BRANCH" ]] || { echo "ABORT: not on $BASE_BRANCH"; exit 1; }
    git diff --quiet && git diff --cached --quiet || { echo "ABORT: uncommitted tracked changes"; exit 1; }
 
-   # Sync with origin so the feature branch starts from the latest base
-   git fetch origin "$BASE_BRANCH" --quiet 2>/dev/null || echo "[sync] fetch failed (offline?) — branching from local state"
-   BEHIND=$(git rev-list --count "HEAD..origin/$BASE_BRANCH" 2>/dev/null || echo 0)
-   if [[ "$BEHIND" -gt 0 ]]; then
-     git merge --ff-only "origin/$BASE_BRANCH" && echo "[sync] fast-forwarded $BEHIND commit(s) from origin/$BASE_BRANCH before branching"
-   fi
+   # Sync the base with origin so the feature branch starts from the latest base
+   sync-development.sh execute-plan || { echo "ABORT: base branch is stale and could not auto-sync"; exit 1; }
 
    git checkout -b feature/<NUMBER>-<short-slug>
    ```
+
+   **Resume mode** — if a branch matching `feature/<NUMBER>-*` already exists (typically because the issue carries the `dispatch-incomplete` label from a prior dispatch that died mid-run), do NOT create a new branch or restart from task 1:
+
+   ```bash
+   git checkout feature/<NUMBER>-<existing-slug>
+   git log --oneline "$BASE_BRANCH"..HEAD   # what already landed
+   ```
+
+   Read the issue's `## Dispatch Incomplete` comment (if present) for where the prior run stopped, map the existing commits against the plan's task list, and continue from the first task without a corresponding commit. Re-run the project's type-check command (per CLAUDE.md) before resuming to confirm the inherited state is sound. If the branch exists but has zero commits, treat it as a fresh start on that branch.
+
+   **Sync the worktree** — in both modes (fresh and resume), once the feature branch is checked out and before any implementation work, bring it up to date with the base:
+
+   ```bash
+   sync-worktree.sh execute-plan
+   ```
+
+   Exit 0 (`in-sync` or `merged`) — proceed. Exit 1 — stop and surface the status token to the developer; a `conflict` means the base moved in a way that needs human merging (the script aborts the merge and leaves the branch unchanged). Fresh branches normally report `in-sync`; the step matters for resume mode, where the branch's base predates the dead dispatch. See the `sync-worktree` skill for the full token table.
 
 4. **Move the issue to In Progress**:
    ```bash
@@ -67,31 +88,54 @@ Agent(
 
 The iteration counter is in-memory in the parent skill's bash loop and resets to 1 at every task boundary. The 3-iteration maximum per task is the source of truth for the counter range.
 
-### Step 2: Dispatch Reviewer
+### Step 2: Review via the persistent reviewer
 
-After the implementer reports completion, spawn a `reviewer` subagent:
+One reviewer session reviews every task in this plan. Spawn it once — at the first task needing review — then continue it per task via `SendMessage`. This replaces a fresh-reviewer-per-task dispatch: re-reading the plan N times costs more tokens than it buys in context hygiene.
+
+**Primitive:** when a custom subagent completes, the Agent tool result includes its agent ID; the orchestrator resumes it with the `SendMessage` tool using that ID as the `to` field, and the resumed agent retains its full conversation history. `SendMessage` requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` in the consumer project's environment (e.g. `.claude/settings.local.json` env block). If it is not enabled, the **fallback** below keeps the loop correct.
+
+**First review (and after any rotation or fallback respawn) — spawn:**
 
 ```
 Agent(
   subagent_type: "reviewer",
-  prompt: "HARNESS_TOKEN_MARKER role=reviewer iteration=<ITER> issue=<NUMBER> kind=execution
-           Review the implementation of Task N from docs/plans/<file>.md.
-           Acceptance criteria to evaluate:
-           [paste criteria from plan]
+  prompt: "HARNESS_TOKEN_MARKER role=reviewer iteration=<CHUNK> issue=<NUMBER> kind=execution
+           You are the persistent reviewer for the execution of docs/plans/<file>.md (issue #<NUMBER>, branch feature/<NUMBER>-<short-slug>).
+           Read the full plan now — it is your evaluation contract for every task. You will receive one review request per task as follow-up messages. Verdicts you issued for earlier tasks are intentional context; grade each request only against its own acceptance criteria.
 
-           1. Read the implementation changes
-           2. Run the project's type-check command (per CLAUDE.md)
-           3. Run any test commands from the acceptance criteria
-           4. Grade each criterion: PASS / NEEDS_IMPROVEMENT / FAIL
-           5. If any criterion is not PASS, provide specific feedback with file:line references"
+           <first review request — same template as the SendMessage continuation below>"
 )
 ```
 
+Record the reviewer's agent ID from the Agent tool result. `<CHUNK>` starts at 1 and increments only on rotation or fallback respawn.
+
+**Every subsequent review request — continue:**
+
+```
+SendMessage(
+  to: "<reviewer-agent-id>",
+  message: "Review Task <N> of docs/plans/<file>.md (attempt <A> of 3).
+            Commits under review: <sha(s)>; diff: git diff <base-sha>..HEAD
+            Implementer's completion narrative:
+            <verbatim narrative>
+            Acceptance criteria to evaluate:
+            [paste criteria from plan]
+            <playwright-tester verdict table, when the task has Playwright ACs — see Playwright AC delegation>
+            Re-run the verification commands yourself (the project's type-check command + every AC test command). Grade each criterion PASS / NEEDS_IMPROVEMENT / FAIL with file:line evidence, structured per your agent definition."
+)
+```
+
+Continuation messages carry NO HARNESS_TOKEN_MARKER — the spawn marker attributes the whole session (the transcript parser sums the single `agent-<id>.jsonl` to the spawn key).
+
+**Rotation:** after 12 reviewed tasks, retire the session and spawn a fresh reviewer with the template above (increment `<CHUNK>`). This bounds reviewer context on the largest plans while typical plans (≤ 12 tasks) use exactly one session.
+
+**Fallback:** if `SendMessage` is unavailable, errors, or the reviewer's verdict does not arrive within the current turn, treat the session as dead — spawn a fresh reviewer with the spawn template above for the remaining tasks and continue. Never end the turn waiting for an asynchronous reply (see Headless safety).
+
 ### Step 3: Handle Review Result
 
-- **All PASS**: Move to the next task
-- **NEEDS_IMPROVEMENT or FAIL**: Pass the reviewer's feedback back to a fresh implementer subagent. Re-review after fixes. Maximum 3 iterations per task — if still failing after 3, stop and report to the user
-- Log each review result for the PR summary
+- **All PASS**: Move to the next task. The reviewer session stays alive for the next task's review request.
+- **NEEDS_IMPROVEMENT or FAIL**: Pass the reviewer's feedback to a fresh implementer subagent (attempt <A+1>). After the fix, send the re-review to the SAME reviewer session via SendMessage. The reviewer intentionally accumulates prior verdicts and implementer narratives across retry attempts — that history is a feature (it catches regressions against its own earlier feedback), not stale state. The 3-iteration maximum per task is unchanged — if still failing after 3, stop and report to the user.
+- Log each review result for the PR summary.
 
 ## Optional: E2E Foundation Gate
 
@@ -140,6 +184,11 @@ When all tasks pass review (and the optional gate is green):
    gh issue comment <NUMBER> --body "Implementation complete. PR #<PR_NUMBER> opened targeting \`$BASE_BRANCH\`."
    ```
 
+   If this was a resume run, clear the recovery label now that a PR exists (no-op if absent):
+   ```bash
+   gh issue edit <NUMBER> --remove-label dispatch-incomplete 2>/dev/null || true
+   ```
+
 4. **Move the issue to In Review**:
    ```bash
    ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
@@ -156,11 +205,12 @@ When all tasks pass review (and the optional gate is green):
 ## Key Rules
 
 - **One task at a time, sequentially.** Never run implementer subagents in parallel (file conflicts).
-- **Fresh subagent per attempt.** Each implementer/reviewer invocation gets a clean context.
+- **Fresh implementer per attempt.** Each implementer invocation gets a clean context.
+- **Persistent reviewer per plan.** One reviewer session reviews all tasks, rotated after 12 reviewed tasks and respawned on session death. Its accumulated verdict history across tasks and retries is intentional.
 - **The plan is the contract.** Implement exactly what it says. If you need to deviate, stop and ask the user.
 - **No completion claims without evidence.** Every PASS must have a verification command that was actually run.
 - **3-iteration maximum per task.** If the review loop isn't converging, stop and surface the issue to the user rather than burning tokens.
 
 ## Playwright AC delegation
 
-When a task's AC starts with `Run: npx playwright test`, the reviewer dispatches `playwright-tester` (see `.claude/agents/playwright-tester.md`).
+When a task's AC starts with `Run: npx playwright test`, the **orchestrator** (this skill) dispatches `playwright-tester` BEFORE sending the review request, then pastes the verdict table (`| AC | Status | Evidence |`) into that SendMessage request. The reviewer cannot dispatch subagents — its tool list has no Agent tool — it only folds the verdict table into its per-AC grading. See `agents/playwright-tester.md` for the runner contract.

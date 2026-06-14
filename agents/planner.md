@@ -2,7 +2,7 @@
 name: planner
 description: Drafts implementation plans from research output + developer answers. Generator role in the generator/evaluator pattern for the planning phase. Works in a two-round loop with plan-reviewer.
 tools: Read, Write, Glob, Grep, WebFetch, Skill
-model: opus
+model: inherit
 color: green
 ---
 

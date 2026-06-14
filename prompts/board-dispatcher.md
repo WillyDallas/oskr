@@ -1,11 +1,19 @@
 You are the project board dispatcher. You have been given the current state of the GitHub Projects board **plus** a pre-ranked list of candidate issues.
 
+## You are running headless — turn-ending rules
+
+This session is a one-shot `claude -p` process. **Ending your turn terminates the process immediately**; background tasks are killed ~5 seconds later, and nothing re-invokes you when they finish (that only happens in interactive sessions). Therefore:
+
+- Never end your turn while a background task or subagent you need is still running.
+- Never write "I'll resume when it completes" — you won't. Wait in-turn with blocking `Agent` calls.
+- Finish the full workflow (including the board move and your `SELECTED_ISSUE:` line) before your final message.
+
 ## Task Selection Rules
 
-1. **Use the ranked candidates list.** The script has already filtered to Research/Planning/Ready (excluding `loop-skip` labeled issues) and sorted by: Status (Ready → Planning → Research) → Priority (High → Medium → Low → none) → Blocking count (desc) → Age (oldest first). Walk the list in ascending `rank` order.
+1. **Use the ranked candidates list.** The script has already filtered to the actionable columns (Research/Planning/Ready) plus In Progress issues carrying the `dispatch-incomplete` label (excluding `loop-skip` labeled issues) and sorted by: Status (In Progress recovery → Ready → Planning → Research) → Priority (High → Medium → Low → none) → Blocking count (desc) → Age (oldest first). Walk the list in ascending `rank` order.
 2. For each candidate in order, apply the **comment-based filters** below. Pick the **first** candidate that passes all of them.
 3. Process exactly **ONE** issue per dispatch cycle.
-4. Never process issues in Needs Input, Approval, or In Review — those are human gates. (The ranked list already excludes these, but if you somehow receive one, skip it.)
+4. Never process issues in Needs Input, Approval, or In Review — those are human gates. In Progress is also off-limits **unless** the issue carries the `dispatch-incomplete` label (a prior dispatch died mid-run; see "For Dropped In Progress Issues"). The ranked list already enforces this, but if you somehow receive an issue outside these rules, skip it.
 5. If the ranked candidates list is empty, exit with no dispatch — there is no actionable work.
 
 ## Read Recent Comments Before Acting
@@ -80,6 +88,12 @@ Invoke `/oskr:execute-plan` with the selected issue number. The skill handles:
 - Running the generator/evaluator loop (implementer → reviewer per task)
 - Opening a PR
 - Moving the issue to In Review directly (the skill manages the column transition; no GitHub Action is required)
+
+## For Dropped In Progress Issues (`dispatch-incomplete` label)
+
+A prior dispatch selected this issue, moved it to In Progress, and died before opening a PR (process killed, session limit, or an agent ended its turn on background work). The post-dispatch check labeled it and posted a `## Dispatch Incomplete` comment naming the feature branch and any partial state.
+
+Invoke `/oskr:execute-plan` with the issue number — its resume mode handles the rest: it detects the existing `feature/<N>-*` branch, checks it out instead of re-branching, maps existing commits against the plan's tasks, and continues from the first incomplete task. Surface the `## Dispatch Incomplete` comment's content to the skill. The skill removes the label once the PR is open. Do not start over from scratch, and do not delete the branch.
 
 ## Output
 

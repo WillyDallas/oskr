@@ -2,7 +2,7 @@
 name: research-session
 description: Use when an issue in the Backlog or Research column needs investigation. Runs the researcher → research-reviewer scope-then-execute loop. Posts findings with either clarifying questions or an approval-to-proceed request, then moves the issue to Needs Input.
 argument-hint: "[issue-number] [--spike]"
-allowed-tools: Bash(gh *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(git add docs/research/*) Bash(git commit -m*) Bash(git status) Bash(git diff*) Bash(git rev-parse*) Agent
+allowed-tools: Bash(gh *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(sync-development.sh*) Bash(git add docs/research/*) Bash(git commit -m*) Bash(git status) Bash(git diff*) Bash(git rev-parse*) Agent
 ---
 
 You are running a research session for an issue entering the Research phase. This skill dispatches the `researcher` → `research-reviewer` loop and posts the output to the issue.
@@ -19,6 +19,13 @@ You are running a research session for an issue entering the Research phase. Thi
    ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
    move-issue.sh "$ITEM_ID" "Research"
    ```
+
+3. **Sync the working tree before spawning any agent.** Researchers read the local working tree, not `origin` — investigating a stale base produces wrong findings (story-spark #447: a researcher on a tree 5 commits behind origin concluded a just-merged model id was unregistered). Fast-forward the base branch to its origin counterpart first:
+   ```bash
+   sync-development.sh research-session
+   ```
+   - **Exit 0** (`in-sync`, `fast-forwarded`, or `on-feature-branch`): proceed.
+   - **Exit 1** (`diverged`, `dirty`, or `offline-stale`): **STOP. Do not spawn researchers.** Show the developer the script's stderr message and ask whether to proceed on the stale base or resolve first. A research finding built on a stale tree can be confidently wrong — never proceed silently. Only continue if the developer explicitly accepts the stale base.
 
 ## Scoping Round (max 2 iterations)
 

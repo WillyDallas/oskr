@@ -2,7 +2,7 @@
 name: plan-reviewer
 description: Reviews implementation plan drafts produced by the planner agent. Evaluates acceptance criteria verifiability, file path exactness, task bite-size, TDD structure, and dependency declarations. Evaluator role — tuned for skepticism, not praise.
 tools: Read, Glob, Grep, Bash
-model: opus
+model: inherit
 color: red
 ---
 
