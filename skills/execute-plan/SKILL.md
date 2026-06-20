@@ -131,6 +131,8 @@ Continuation messages carry NO HARNESS_TOKEN_MARKER — the spawn marker attribu
 
 **Fallback:** if `SendMessage` is unavailable, errors, or the reviewer's verdict does not arrive within the current turn, treat the session as dead — spawn a fresh reviewer with the spawn template above for the remaining tasks and continue. Never end the turn waiting for an asynchronous reply (see Headless safety).
 
+**Observability:** record reviewer-session usage in the PR body's Verification section as `reviewer sessions used: N, fallback respawns: M`. If fallback respawns track the task count, batching never engaged — call that out explicitly in the PR summary so the silent degradation to fresh-per-task review is visible rather than read as batched.
+
 ### Step 3: Handle Review Result
 
 - **All PASS**: Move to the next task. The reviewer session stays alive for the next task's review request.
@@ -172,6 +174,7 @@ When all tasks pass review (and the optional gate is green):
 
    ## Verification
    - type-check: PASS
+   - reviewer sessions used: N, fallback respawns: M
    - [test results summary]
    EOF
    )"

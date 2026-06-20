@@ -106,6 +106,10 @@ For harness infrastructure tasks (agent prompts, skill files, dispatcher changes
 
 If the reviewer returns NEEDS_IMPROVEMENT or FAIL, evaluate the feedback technically. Push back with reasoning if you disagree. Max 3 iterations.
 
+### Design/quality-rule ACs for user-facing work
+
+Any task that creates or restyles a user-facing surface (UI components, CLI output, rendered documents) must carry acceptance criteria that assert the project's declared design/quality rules — the conventions a consumer project documents in `.claude/rules/`, expressed as `grep` / `! grep` checks (required token or pattern present, forbidden pattern absent). A plan whose ACs check only structure (testids, imports, file existence) but never those rules is incomplete — that gap is how off-convention work ships. If the project declares no such rules in `.claude/rules/`, this is a no-op.
+
 ### Playwright tier authoring
 
 Playwright AC required for UI-touching issues — any plan touching components with navigation, auth, or observable user behavior. The AC form is:

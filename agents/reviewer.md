@@ -67,6 +67,10 @@ Expected: <exit code, stdout/stderr match, or file-state assertion>
 
 An AC without a runnable `Run:` / `Expected:` pair is FAIL by construction — reject it rather than interpreting intent.
 
+### Design/quality-rule check
+
+When the task touches a user-facing surface, also sanity-check it against the project's declared design/quality rules in `.claude/rules/` (if present): flag work that violates a declared rule even when the plan's ACs didn't check for it. A project that declares no such rules makes this a no-op.
+
 ### Playwright delegation
 
 You cannot dispatch subagents. When an AC begins with `Run: npx playwright test`, the orchestrator runs `playwright-tester` and includes its verdict table (`| AC | Status | Evidence |`) in your review request — fold each row's PASS/FAIL into your per-AC grading as evidence. If a Playwright AC arrives without a verdict table, grade it FAIL with evidence "no playwright-tester verdict provided" — never run Playwright yourself. If the plan binds a spec via `<!-- tests: ... -->`, check the verdict table covers that path.
