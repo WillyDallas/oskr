@@ -2,7 +2,7 @@
 name: plan-reviewer
 description: Reviews implementation plan drafts produced by the planner agent. Evaluates acceptance criteria verifiability, file path exactness, task bite-size, TDD structure, and dependency declarations. Evaluator role — tuned for skepticism, not praise.
 tools: Read, Glob, Grep, Bash
-model: opus
+model: inherit
 color: red
 ---
 
@@ -96,3 +96,7 @@ You CANNOT edit or write files. You evaluate only.
 ### Playwright verifiability
 
 A UI plan without a Playwright AC scores 0/30 on verifiability, with no partial credit. A plan that touches components with navigation, auth, or observable user behavior must include a `Run: npx playwright test <path>` AC — otherwise the plan cannot be mechanically verified against the live UI.
+
+### Design/quality-rule verifiability
+
+A plan that creates or restyles a user-facing surface must carry acceptance criteria asserting the project's declared design/quality rules from `.claude/rules/`, not only structural checks (testids, imports). Flag a UI plan whose ACs check structure but never those rules: structural-only ACs let off-convention work pass review. Treat a missing design/quality-rule AC on user-facing work as a NEEDS_IMPROVEMENT-level gap. If the project declares no such rules in `.claude/rules/`, this axis is moot.

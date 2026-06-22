@@ -21,9 +21,11 @@ Walk the developer through:
 - Acceptance criteria per task — call out any that look non-mechanical (hard to verify in a test/grep), since those are the common failure mode
 - Any open questions or unresolved disagreements noted in the plan header
 
+**End your turn here.** Close the walkthrough with an invitation to ask questions (e.g., "Questions about any part of this, or ready to decide?") and wait for the developer's reply. Do NOT present the approve/reject prompt in the same turn as the walkthrough — bundling them collapses the review into a preamble for the decision dialog and pressures a snap judgment. Phase 2 begins only after the developer has responded, whether with questions (answer them, then re-offer the decision) or with a signal that they're ready.
+
 ## Phase 2: Decision Prompt
 
-Ask: **"Approve or reject?"**
+Only after the developer has engaged with the Phase 1 walkthrough, ask: **"Approve or reject?"**
 
 ---
 
@@ -87,6 +89,7 @@ The next downstream skill (`planning-session` for Re-Plan, `research-session` fo
 ## Key Rules
 
 - **Never auto-invoke `execute-plan`.** Approval → Ready is a transition, not a trigger.
+- **Phase 1 and Phase 2 are separate turns.** The walkthrough ends with an open invitation for questions; the approve/reject prompt comes only after the developer responds.
 - Never skip the Phase 2 Option A next-action gate — it's the reason this skill exists.
 - One issue per invocation.
 - The rejection-comment headers (`## Plan Rejected: Re-Plan` / `## Plan Rejected: Re-Research`) are routing contracts — do not rewrite them.

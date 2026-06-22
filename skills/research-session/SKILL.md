@@ -2,7 +2,7 @@
 name: research-session
 description: Use when an issue in the Backlog or Research column needs investigation. Runs the researcher → research-reviewer scope-then-execute loop. Posts findings with either clarifying questions or an approval-to-proceed request, then moves the issue to Needs Input.
 argument-hint: "[issue-number] [--spike]"
-allowed-tools: Bash(gh *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(git add docs/research/*) Bash(git commit -m*) Bash(git status) Bash(git diff*) Bash(git rev-parse*) Agent
+allowed-tools: Bash(gh *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(sync-development.sh*) Bash(git add docs/research/*) Bash(git commit -m*) Bash(git status) Bash(git diff*) Bash(git rev-parse*) Agent
 ---
 
 You are running a research session for an issue entering the Research phase. This skill dispatches the `researcher` → `research-reviewer` loop and posts the output to the issue.
@@ -19,6 +19,13 @@ You are running a research session for an issue entering the Research phase. Thi
    ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
    move-issue.sh "$ITEM_ID" "Research"
    ```
+
+3. **Sync the working tree before spawning any agent.** Researchers read the local working tree, not `origin` — investigating a stale base produces wrong findings (story-spark #447: a researcher on a tree 5 commits behind origin concluded a just-merged model id was unregistered). Fast-forward the base branch to its origin counterpart first:
+   ```bash
+   sync-development.sh research-session
+   ```
+   - **Exit 0** (`in-sync`, `fast-forwarded`, or `on-feature-branch`): proceed.
+   - **Exit 1** (`diverged`, `dirty`, or `offline-stale`): **STOP. Do not spawn researchers.** Show the developer the script's stderr message and ask whether to proceed on the stale base or resolve first. A research finding built on a stale tree can be confidently wrong — never proceed silently. Only continue if the developer explicitly accepts the stale base.
 
 ## Scoping Round (max 2 iterations)
 
@@ -61,20 +68,54 @@ Loop if REVISE. Max 2 iterations. Freeze DoD after acceptance (or after iter 2, 
 
 ## Execution Round (max 3 iterations)
 
-### Step 3: Spawn researcher with frozen DoD
+### Step 3: Investigate against the frozen DoD (parallel lens fan-out)
+
+The execution round fans out across the independent areas the frozen DoD names, then a synthesizer reconciles them into one output. A single researcher serially context-switches across every DoD axis and its depth is capped by one attention budget; independent lenses widen coverage and catch the cross-cutting effects and stale-tree false-negatives (story-spark #447) a single pass misses.
+
+**3a — Derive the lenses from the frozen DoD.** Map the DoD's "areas to map" onto investigation lenses, keeping only those this issue actually spans (max 4). Derive them from the subsystems the DoD names; the usual menu:
+
+- `interface` — the caller- or user-facing surface and its observable behavior (HTTP/RPC handlers, CLI commands, UI components). Omit for pure-internal / migration / config issues.
+- `internals` — the implementation core: modules, call graphs, control and data flow through the subsystems the DoD names.
+- `data-risk` — data model, schema / migrations, persisted state, breaking changes, decomposition counts.
+- `deep-research` — external library / pattern / security lookup (include only if the DoD's deep-research scope is non-`n/a`; this lens uses the `deep-research` skill).
+
+**If fewer than 2 lenses apply** (small or single-axis issue), skip the fan-out and spawn a single `researcher` exactly as the legacy single-track round — the fan-out overhead isn't worth it. The marker is the unchanged `HARNESS_TOKEN_MARKER role=researcher iteration=<ITER> issue=<NUMBER> kind=execution` with no `lens=` suffix, and that one researcher chooses Branch A/B itself.
+
+**3b — Spawn the lens researchers in parallel.** Emit all lens researchers as `Agent` calls in a single message so they run concurrently. Each carries its own marker with a `lens=<LENS>` suffix — the suffix is ignored by `token-report.sh` when present (the parser matches on `kind=execution`, so the work attributes to `role=researcher kind=execution`) but keeps the parallel prompts distinguishable:
 
 ```
 Agent(
   subagent_type: "researcher",
-  prompt: "HARNESS_TOKEN_MARKER role=researcher iteration=<ITER> issue=<NUMBER> kind=execution
-           Execution round for issue #<NUMBER>.
+  prompt: "HARNESS_TOKEN_MARKER role=researcher iteration=<ITER> issue=<NUMBER> kind=execution lens=<LENS>
+           Execution round for issue #<NUMBER> — <LENS> lens only.
            Frozen DoD:
            [paste]
 
-           Investigate and output either Branch A (clarifying questions) or Branch B (approval-to-proceed) per your agent definition. Use the deep-research skill if the DoD calls for it.
-           If SPIKE_MODE is true, also include the Spike Mode directive from the Spike Mode section of this skill."
+           Investigate ONLY the <LENS> slice of the DoD. Map your area exhaustively; do not duplicate the other lenses' areas. Independently honor the origin-verification rule for any merge-dependent claim. Return raw findings (scope, risks, evidence with file:line) — do NOT choose Branch A/B; the synthesizer owns that."
 )
 ```
+
+**3c — Synthesize into one output.** Spawn a single synthesizer `researcher` with all lens findings. It owns every single-valued decision — Branch A vs B (or the spike deliverable), the decomposition call, the final question set — and reconciles conflicts:
+
+```
+Agent(
+  subagent_type: "researcher",
+  prompt: "HARNESS_TOKEN_MARKER role=researcher iteration=<ITER> issue=<NUMBER> kind=execution lens=synthesis
+           Execution round for issue #<NUMBER> — synthesis.
+           Frozen DoD:
+           [paste]
+
+           Lens findings (labeled by lens):
+           [paste each lens's raw findings]
+
+           Reconcile into a SINGLE output: Branch A (clarifying questions) or Branch B (approval-to-proceed) per your agent definition. Merge and dedupe scope/risks across lenses. Flag any load-bearing claim only one lens made, and re-verify merge-dependent claims against the base branch's origin before relying on them. Use the deep-research skill only if a gap remains after the lenses.
+           If SPIKE_MODE is true, emit and write the 7-section Spike Deliverable instead, per the Spike Mode section of this skill."
+)
+```
+
+The synthesized output is what Step 4 reviews and what Post and Transition publishes — the lens researchers never post, commit, or move the board.
+
+**Iterations 2–3 (on NEEDS_IMPROVEMENT / FAIL):** do NOT re-run the full fan-out. Spawn one `researcher` to address the specific deficiencies the reviewer named, then re-synthesize (or revise the synthesized output directly). Reserve fan-out for the first execution pass.
 
 ### Step 4: Spawn research-reviewer on the findings
 
@@ -98,7 +139,7 @@ Loop if NEEDS_IMPROVEMENT or FAIL. Max 3 iterations. Surface to developer after 
 
 ## Spike Mode
 
-If `SPIKE_MODE` is true, the scoping-round and execution-round researcher spawn prompts must include this additional directive:
+If `SPIKE_MODE` is true, the scoping-round researcher prompt and the execution-round **synthesizer** prompt (Step 3c — not the individual lens researchers, which only investigate) must include this additional directive:
 
 ```
 This is a SPIKE investigation. Instead of Branch A (clarifying questions) or Branch B (approval-to-proceed), emit a Spike Deliverable using the 7-section template defined in the research-session skill. The deliverable is a document, not a gate for Q&A. Use the deep-research skill if the DoD calls for it.
@@ -190,6 +231,7 @@ The researcher's final output in Spike Mode MUST follow this exact 7-section str
 ## Key Rules
 
 - One issue per invocation.
-- Fresh subagent per iteration (no shared context across iterations).
+- Fresh subagents per iteration (no shared context across iterations). The first execution iteration fans out lens researchers in parallel (Step 3b) plus one synthesizer (Step 3c); later iterations are single-researcher gap-fills.
+- All board / git / `gh` writes are single-shot and run only after synthesis. Lens researchers are read-only — they never post a comment, commit, or move the board. The synthesizer (or the legacy single researcher) produces the one canonical output the skill publishes.
 - DoD is frozen after scoping — execution round cannot amend the contract.
 - Both output branches (questions / approval) move to Needs Input. The developer gates the transition to Planning manually.

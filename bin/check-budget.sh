@@ -25,6 +25,9 @@ MAX_AGE_SECONDS=300
 PACE_BUFFER="0.01"       # ends up 1% under pace after waiting
 MIN_WAIT_SECONDS=60
 MAX_WAIT_SECONDS=3600    # caps weekly's multi-hour recovery waits
+MAX_START_UTIL="${MAX_START_UTIL:-0.75}"  # session-headroom gate: a dispatch can run
+                         # 20-60 min; starting near the session ceiling risks a
+                         # mid-run 429 that strands the issue In Progress
 
 usage() {
   cat <<'EOF'
@@ -223,16 +226,33 @@ check_budget() {
   s_ok=$(echo "$s_util <= $s_pace" | bc -l)
   w_ok=$(echo "$w_util <= $w_pace" | bc -l)
 
-  local s_state="ok" w_state="ok"
+  local s_state="ok" w_state="ok" h_state="ok" h_ok
   [[ "$s_ok" == "0" ]] && s_state="FAIL"
   [[ "$w_ok" == "0" ]] && w_state="FAIL"
+  h_ok=$(echo "$s_util <= $MAX_START_UTIL" | bc -l)
+  [[ "$h_ok" == "0" ]] && h_state="FAIL"
 
-  log "[budget] GATES fetch=ok(age=$(format_age "$BUDGET_AGE")) pace-s=${s_state}(u=${s_util},p=${s_pace}) pace-w=${w_state}(u=${w_util},p=${w_pace})"
+  log "[budget] GATES fetch=ok(age=$(format_age "$BUDGET_AGE")) pace-s=${s_state}(u=${s_util},p=${s_pace}) pace-w=${w_state}(u=${w_util},p=${w_pace}) headroom=${h_state}(u=${s_util},max=${MAX_START_UTIL})"
 
-  # Both pace gates pass → dispatch
-  if [[ "$s_state" == "ok" && "$w_state" == "ok" ]]; then
+  # All gates pass → dispatch
+  if [[ "$s_state" == "ok" && "$w_state" == "ok" && "$h_state" == "ok" ]]; then
     log "[budget] DECISION OK"
     return 0
+  fi
+
+  # Headroom gate: pace allows dispatching, but the session window is too close
+  # to its ceiling to safely start a 20-60 min run — a mid-run 429 strands the
+  # issue In Progress. Wait until the sliding window sheds enough usage.
+  if [[ "$s_state" == "ok" && "$w_state" == "ok" && "$h_state" == "FAIL" ]]; then
+    local h_wait h_u_pct h_max_pct
+    h_wait=$(compute_pace_wait "$s_util" "$MAX_START_UTIL" "$s_win")
+    h_u_pct=$(printf '%.0f' "$(echo "$s_util * 100" | bc -l)")
+    h_max_pct=$(printf '%.0f' "$(echo "$MAX_START_UTIL * 100" | bc -l)")
+    local h_capped_note=""
+    (( h_wait >= MAX_WAIT_SECONDS )) && h_capped_note=" (capped at ${MAX_WAIT_SECONDS}s)"
+    BUDGET_WAIT_SECONDS="$h_wait"
+    log "[budget] DECISION SKIP reason=LOW_HEADROOM u=${h_u_pct}% max=${h_max_pct}% wait=${h_wait}s${h_capped_note}"
+    return 1
   fi
 
   # Compute wait for whichever gates failed; use the larger (both must recover)

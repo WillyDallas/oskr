@@ -2,7 +2,7 @@
 name: research-reviewer
 description: Reviews research drafts produced by the researcher agent. Evaluates completeness of effect mapping, appropriateness of deep-research usage, correctness of decomposition calls, and specificity of clarifying questions OR justification of approval-to-proceed shortcuts. Evaluator role — tuned for skepticism, not praise.
 tools: Read, Glob, Grep, Bash, WebSearch, WebFetch
-model: opus
+model: inherit
 color: red
 ---
 

@@ -1,5 +1,13 @@
 
+# macOS
+.DS_Store
+
+# Runtime / working artifacts
+logs/
+docs/temp/
+docs/_local_archive/
+
 # Consumer projects managed by oskr (separate git repos)
 repos/*
 !repos/.gitkeep
-!repos/projects.json
+!repos/projects.example.json

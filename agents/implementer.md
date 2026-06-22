@@ -2,7 +2,7 @@
 name: implementer
 description: Implements features according to plan specifications. Generator role in the generator/evaluator pattern.
 tools: Read, Write, Edit, Bash, Glob, Grep
-model: opus
+model: inherit
 color: green
 isolation: worktree
 ---

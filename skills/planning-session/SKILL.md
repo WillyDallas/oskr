@@ -38,7 +38,7 @@ When DoD is still valid, update the existing plan file in place rather than crea
 
 1. Read the existing plan file.
 2. Spawn the planner subagent in execution round, passing the frozen DoD, the rejection feedback, and the path of the existing plan file. Instruct it to revise the same file (not write a new dated one).
-3. Spawn plan-reviewer for the execution round as usual.
+3. Spawn a single plan-reviewer for the execution round (not the Step 4 rubric panel — a fast-path revision is targeted, so the panel's parallel-execute cost isn't warranted).
 4. Commit the revised plan file:
    ```bash
    BASE_BRANCH="${OSKR_BASE_BRANCH:-main}"
@@ -107,23 +107,50 @@ Agent(
 )
 ```
 
-### Step 4: Spawn plan-reviewer for execution round
+### Step 4: Review the plan (parallel rubric panel)
+
+The execution-round review fans the plan-reviewer's weighted rubric across independent lenses, then a synthesizer merges them into one verdict. The highest-leverage catch — the 30%-weighted "mechanically verifiable AC" axis — needs a reviewer that *runs or greps each AC command against the tree* rather than eyeballing it; a single generalist reviewer tends to spot-check. Splitting the rubric lets the verification lens actually execute while the others audit in parallel.
+
+**4a — Spawn the rubric lenses in parallel.** Emit all three as `Agent` calls in one message. Each owns a disjoint slice of the rubric (the slices sum to 100, so scores are additive) and carries a `lens=<LENS>` marker:
+
+| lens | rubric axes it owns (weight) | what it must DO |
+|---|---|---|
+| `verify` | Mechanically verifiable criteria (30) + Playwright gate | Run or grep every AC's command against the real tree; confirm it exists and yields the claimed output shape. A UI plan with no `npx playwright test` AC scores 0/30. |
+| `structure` | File-path exactness (20) + TDD structure (15) + task bite-size (15) = 50 | Verify every named file path exists (or is a sensible new path) via Glob/Read; check each task has the 5-step TDD pattern and is 2–5 min of work. |
+| `completeness` | Dependency declaration (10) + complete code (10) = 20 | Confirm cross-task dependencies are explicit and the plan body carries real code snippets, not descriptions. |
 
 ```
 Agent(
   subagent_type: "plan-reviewer",
-  prompt: "HARNESS_TOKEN_MARKER role=plan-reviewer iteration=<ITER> issue=<NUMBER> kind=execution
-           Execution round for issue #<NUMBER>.
+  prompt: "HARNESS_TOKEN_MARKER role=plan-reviewer iteration=<ITER> issue=<NUMBER> kind=execution lens=<LENS>
+           Execution round for issue #<NUMBER> — <LENS> lens only.
            Frozen DoD:
            [paste accepted DoD]
 
            Plan file: docs/plans/YYYY-MM-DD-<feature>.md
 
-           Evaluate per the Execution Round Review format in your agent definition."
+           Evaluate ONLY your lens's rubric axes (see the panel table in the planning-session skill). Score each axis you own; for the `verify` lens, actually run/grep the AC commands. Return your axis scores + issues with file:line evidence — do NOT emit the overall verdict; the synthesizer owns that."
 )
 ```
 
-If Overall is NEEDS_IMPROVEMENT or FAIL, loop back to Step 3 with reviewer's feedback. Max 3 iterations. After iteration 3, stop and surface the unresolved issues to the developer.
+**4b — Synthesize one verdict.** Spawn a single `plan-reviewer` to merge the lens scores into the canonical Plan Review output per its agent definition's Execution Round Review format:
+
+```
+Agent(
+  subagent_type: "plan-reviewer",
+  prompt: "HARNESS_TOKEN_MARKER role=plan-reviewer iteration=<ITER> issue=<NUMBER> kind=execution lens=synthesis
+           Execution round for issue #<NUMBER> — synthesis.
+           Frozen DoD:
+           [paste accepted DoD]
+
+           Lens reviews (labeled by lens):
+           [paste each lens's axis scores + issues]
+
+           Merge into the single Plan Review output. Sum the weighted axes (they total 100). Set Overall = FAIL if any lens FAILed, else NEEDS_IMPROVEMENT if Total < 85, else PASS. Preserve every lens's issues in the Issues Found section."
+)
+```
+
+If Overall is NEEDS_IMPROVEMENT or FAIL, loop back to Step 3 with the synthesized feedback. **On iterations 2–3, skip the panel** — spawn a single `plan-reviewer` that re-checks whether the named deficiencies were fixed and re-runs any AC command it touches. Max 3 iterations. After iteration 3, stop and surface the unresolved issues to the developer.
 
 ### Step 5: Post DoD + review summary to issue
 
@@ -179,6 +206,6 @@ If the consumer project ships a `.claude/skills/planning-session/test-reference.
 
 - **This skill does not run Q&A.** If the input contract is missing, stop and redirect to `developer-input`.
 - One issue per invocation.
-- Fresh subagent per iteration (no shared context across iterations).
+- Fresh subagents per iteration (no shared context across iterations). The first execution-round review fans out the rubric panel (Step 4a) plus one synthesizer (Step 4b); the scoping review and later-iteration re-reviews are single plan-reviewers. Only the reviewer fans out — the planner stays single (parallel plan drafts break the single-canonical-file contract).
 - DoD is frozen after scoping — execution round cannot amend the contract.
 - Never chain into `plan-review` or `execute-plan` — those are separate human-gated skills.
