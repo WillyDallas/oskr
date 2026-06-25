@@ -1,0 +1,14 @@
+{
+  "data": {
+    "repository": {
+      "issue": {
+        "projectItems": {
+          "nodes": [
+            { "id": "PVTI_otherproj", "project": { "number": 99 } },
+            { "id": "PVTI_target123", "project": { "number": 1 } }
+          ]
+        }
+      }
+    }
+  }
+}

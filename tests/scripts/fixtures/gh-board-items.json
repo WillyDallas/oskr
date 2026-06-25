@@ -1,0 +1,36 @@
+{
+  "data": {
+    "repository": {
+      "projectV2": {
+        "items": {
+          "totalCount": 2,
+          "pageInfo": { "hasNextPage": false, "endCursor": "CUR1" },
+          "nodes": [
+            {
+              "id": "PVTI_a",
+              "status": { "name": "Ready" },
+              "priority": { "name": "P1" },
+              "category": { "name": "Feature" },
+              "content": {
+                "number": 10, "title": "A", "createdAt": "2026-01-01T00:00:00Z", "body": "",
+                "assignees": { "nodes": [] }, "comments": { "nodes": [] }, "labels": { "nodes": [] },
+                "blocking": { "totalCount": 0 }, "blockedBy": { "totalCount": 0 }
+              }
+            },
+            {
+              "id": "PVTI_b",
+              "status": { "name": "Planning" },
+              "priority": null,
+              "category": null,
+              "content": {
+                "number": 11, "title": "B", "createdAt": "2026-01-02T00:00:00Z", "body": "",
+                "assignees": { "nodes": [] }, "comments": { "nodes": [] }, "labels": { "nodes": [] },
+                "blocking": { "totalCount": 0 }, "blockedBy": { "totalCount": 0 }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

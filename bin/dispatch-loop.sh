@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC1091,SC2016
+# shellcheck disable=SC1091
 # SC1091: sourced files (check-budget.sh, harness-lib.sh) aren't followed without -x
-# SC2016: GraphQL query variables ($owner, $repo, $number) are intentionally literal, not shell expansions
 # Long-running dispatch loop with ccburn pace-aware skipping.
 #
 # Processes actionable issues continuously. Before each dispatch, calls the
@@ -67,51 +66,8 @@ BASE_BRANCH=$(harness_config_get '.base_branch' 2>/dev/null || echo "main")
 [[ -n "$BASE_BRANCH" && "$BASE_BRANCH" != "null" ]] || BASE_BRANCH="main"
 
 has_actionable_work() {
-  local owner repo number actionable_json inprogress_name count
-  owner=$(harness_config_get '.github.owner') || return 1
-  repo=$(harness_config_get '.github.repo') || return 1
-  number=$(harness_config_get '.github.project_number') || return 1
-  actionable_json=$(
-    while IFS= read -r slug; do
-      _harness_display_name_for "$slug"
-    done < <(harness_config_get_array '.workflow.actionable_columns') \
-      | jq -R . | jq -sc .
-  )
-  # Dropped-work recovery: an In Progress issue counts as actionable ONLY when a
-  # prior dispatch died mid-run and labeled it dispatch-incomplete (resume path).
-  # This is independent of the configured actionable_columns. Mirrors
-  # board-dispatcher.sh's candidate filter.
-  inprogress_name=$(_harness_display_name_for in_progress)
-  count=$(gh api graphql -f query='
-    query($owner: String!, $repo: String!, $number: Int!) {
-      repository(owner: $owner, name: $repo) {
-        projectV2(number: $number) {
-          items(first: 100) {
-            nodes {
-              status: fieldValueByName(name: "Status") {
-                ... on ProjectV2ItemFieldSingleSelectValue { name }
-              }
-              content {
-                ... on Issue {
-                  labels(first: 10) { nodes { name } }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  ' -F owner="$owner" -F repo="$repo" -F number="$number" 2>/dev/null \
-    | jq --argjson actionable "$actionable_json" --arg inprogress "$inprogress_name" '
-        [.data.repository.projectV2.items.nodes[]
-          | select(
-              (.status.name as $n | $actionable | index($n))
-              or (.status.name == $inprogress
-                  and (((.content.labels.nodes // []) | map(.name) | index("dispatch-incomplete")) != null))
-            )
-          | select(((.content.labels.nodes // []) | map(.name) | index("loop-skip")) | not)
-        ] | length
-      ' 2>/dev/null || echo "0")
+  local count
+  count=$(harness_count_actionable)
   [[ "$count" -gt 0 ]]
 }
 
