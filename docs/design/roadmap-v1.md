@@ -59,3 +59,21 @@ Order: **1 → (2 ∥ 4) → 3 → (5 ∥ 6).** (Mirrors `squirrlylabs/WORKSPACE
   *arbitrating across* projects (shared budget/priority) is a later scaling concern.
 - **Full ingestion / debugger are parked** — useful, but not required to hit the DoD (v1 uses `init`'s
   existing requirements-doc seeding for tracking).
+
+## Context map — start here per Area
+
+A cleared-context session can cold-start any Area from these sources (in-repo unless marked *external*):
+
+- **All areas:** `docs/design/platform-reframe.md` (master design) · `docs/design/task-tracking-model.md` ·
+  this roadmap · memory `oskr-v1-roadmap` + `oskr-platform-reframe`.
+- **#26 Backend adapter:** `docs/research/2026-06-22-forgejo-backend-capability.md` (endpoints,
+  scoped-label mapping, the 7 invariants) · the `BACKEND:` section of `bin/harness-lib.sh` (the GitHub
+  functions a Forgejo backend must mirror) · `tests/scripts/` (gh-shim + how to test the seam).
+- **#27 Workspace & setup:** platform-reframe.md (two-tier config, setup-skill split, state→`.oskr/`,
+  dev/installed toggle) · `skills/init/SKILL.md` is the template · issues #16, #17.
+- **#28 Brain (hjarne):** *external* `../Solvej` — its `README.md` defines the Karpathy
+  raw→distill→wiki pattern to lift · issue #7.
+- **#29 Clients (mixed):** *external* `../squirrlylabs/WORKSPACE.md` — the registry of clients
+  (sluice, coremyotherapy) + migration sequence · issue #16 (adopt-existing path).
+- **#30 Learning (teach):** vendored skill source `docs/reference/teach/` (SKILL.md + FORMAT files) ·
+  audit `docs/research/2026-06-22-mattpocock-skills-audit.md` (techniques to extract).
