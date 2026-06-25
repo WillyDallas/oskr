@@ -8,36 +8,14 @@ source "$SCRIPT_DIR/harness-lib.sh"
 
 ITEM_ID="${1:?usage: round-trip-move.sh <ITEM_ID>}"
 
-# shellcheck disable=SC2016
-current=$(gh api graphql -f query='
-  query($id: ID!) {
-    node(id: $id) {
-      ... on ProjectV2Item {
-        status: fieldValueByName(name: "Status") {
-          ... on ProjectV2ItemFieldSingleSelectValue { name }
-        }
-      }
-    }
-  }
-' -F id="$ITEM_ID" --jq '.data.node.status.name')
+current=$(harness_item_status "$ITEM_ID")
 
 echo "round-trip: current column = $current"
 
 echo "round-trip: moving to Backlog"
 harness_move_issue "$ITEM_ID" "Backlog" >/dev/null
 
-# shellcheck disable=SC2016
-after=$(gh api graphql -f query='
-  query($id: ID!) {
-    node(id: $id) {
-      ... on ProjectV2Item {
-        status: fieldValueByName(name: "Status") {
-          ... on ProjectV2ItemFieldSingleSelectValue { name }
-        }
-      }
-    }
-  }
-' -F id="$ITEM_ID" --jq '.data.node.status.name')
+after=$(harness_item_status "$ITEM_ID")
 
 if [[ "$after" != "Backlog" ]]; then
   echo "round-trip: FAIL — expected Backlog, got $after"

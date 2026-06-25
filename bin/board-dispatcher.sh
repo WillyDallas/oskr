@@ -30,9 +30,8 @@ log() {
 
 source "$SCRIPT_DIR/harness-lib.sh"
 
-OWNER=$(harness_config_get '.github.owner') || { log "ERROR: missing .github.owner in harness-config.json"; exit 1; }
-REPO=$(harness_config_get '.github.repo') || { log "ERROR: missing .github.repo in harness-config.json"; exit 1; }
-PROJECT_NUMBER=$(harness_config_get '.github.project_number') || { log "ERROR: missing .github.project_number in harness-config.json"; exit 1; }
+# Backend identity (owner/repo/project_number) is read inside harness-lib's
+# backend functions, which fail loudly if config is missing.
 
 # Base branch from harness-config; default main. Used by the post-run completion check.
 BASE_BRANCH=$(harness_config_get '.base_branch' 2>/dev/null || echo "main")
@@ -51,66 +50,10 @@ ACTIONABLE_NAMES_JSON=$(
     | jq -R . | jq -s .
 ) || { log "ERROR: failed to resolve workflow.actionable_columns"; exit 1; }
 
-# --- Query the board (paginated) ---
-#
-# Accumulate one JSON node per line in a temp file, then assemble into a single
-# BOARD_STATE blob matching the shape Claude expects downstream.
-NODES_FILE=$(mktemp -t board-dispatcher.XXXXXX.jsonl)
-trap 'rm -f "$NODES_FILE"' EXIT
-
-AFTER="null"
-BOARD_TOTAL=0
-while :; do
-  PAGE=$(gh api graphql -f query='
-    query($owner: String!, $repo: String!, $number: Int!, $after: String) {
-      repository(owner: $owner, name: $repo) {
-        projectV2(number: $number) {
-          items(first: 100, after: $after) {
-            totalCount
-            pageInfo { hasNextPage endCursor }
-            nodes {
-              id
-              status: fieldValueByName(name: "Status") {
-                ... on ProjectV2ItemFieldSingleSelectValue { name }
-              }
-              priority: fieldValueByName(name: "Priority") {
-                ... on ProjectV2ItemFieldSingleSelectValue { name }
-              }
-              category: fieldValueByName(name: "Category") {
-                ... on ProjectV2ItemFieldSingleSelectValue { name }
-              }
-              content {
-                ... on Issue {
-                  number
-                  title
-                  createdAt
-                  body
-                  assignees(first: 5) { nodes { login } }
-                  comments(last: 5) { nodes { body } }
-                  labels(first: 10) { nodes { name } }
-                  blocking(first: 1) { totalCount }
-                  blockedBy(first: 1) { totalCount }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  ' -F owner="$OWNER" -F repo="$REPO" -F number="$PROJECT_NUMBER" -F after="$AFTER" 2>/dev/null) || {
-    log "ERROR: failed to query board (page after=$AFTER)"
-    exit 1
-  }
-
-  printf '%s' "$PAGE" | jq -c '.data.repository.projectV2.items.nodes[]' >> "$NODES_FILE"
-  BOARD_TOTAL=$(echo "$PAGE" | jq '.data.repository.projectV2.items.totalCount')
-
-  HAS_NEXT=$(echo "$PAGE" | jq -r '.data.repository.projectV2.items.pageInfo.hasNextPage')
-  if [[ "$HAS_NEXT" != "true" ]]; then break; fi
-  AFTER=$(echo "$PAGE" | jq -r '.data.repository.projectV2.items.pageInfo.endCursor')
-done
-
-BOARD_STATE=$(jq -s '{data: {repository: {projectV2: {items: {totalCount: '"$BOARD_TOTAL"', nodes: .}}}}}' "$NODES_FILE")
+# --- Query the board ---
+# harness_list_board paginates and assembles the GitHub-native board blob.
+BOARD_STATE=$(harness_list_board) || { log "ERROR: failed to query board"; exit 1; }
+BOARD_TOTAL=$(echo "$BOARD_STATE" | jq '.data.repository.projectV2.items.totalCount')
 BOARD_RETURNED=$(echo "$BOARD_STATE" | jq '.data.repository.projectV2.items.nodes | length')
 
 if [[ "$BOARD_TOTAL" -ne "$BOARD_RETURNED" ]]; then
@@ -207,41 +150,24 @@ verify_dispatch_completion() {
   fi
   [[ -z "$issue_branches" ]] && return 0
 
-  local session_id status open_prs commits
+  local session_id status open_prs commits comment_body
   session_id=$(printf '%s' "$CLAUDE_OUTPUT" \
     | jq -r 'if type=="array" then (.[] | select(.type=="result")) else . end | .session_id // empty' 2>/dev/null \
     | tail -n 1)
 
   while read -r n b; do
     [[ -z "$n" ]] && continue
-    status=$(gh api graphql -f query='
-      query($owner: String!, $repo: String!, $number: Int!) {
-        repository(owner: $owner, name: $repo) {
-          projectV2(number: $number) {
-            items(first: 100) {
-              nodes {
-                status: fieldValueByName(name: "Status") {
-                  ... on ProjectV2ItemFieldSingleSelectValue { name }
-                }
-                content { ... on Issue { number } }
-              }
-            }
-          }
-        }
-      }
-    ' -F owner="$OWNER" -F repo="$REPO" -F number="$PROJECT_NUMBER" 2>/dev/null \
-      | jq -r --argjson n "$n" '.data.repository.projectV2.items.nodes[] | select(.content.number == $n) | .status.name' 2>/dev/null | head -n 1)
+    status=$(harness_issue_status "$n")
     [[ "$status" != "$INPROGRESS_NAME" ]] && continue
-    open_prs=$(gh pr list --repo "$OWNER/$REPO" --head "$b" --state open --json number --jq 'length' 2>/dev/null || echo "0")
+    open_prs=$(harness_pr_open_count "$b")
     [[ "$open_prs" != "0" ]] && continue
 
     commits=$(git -C "$PROJECT_DIR" rev-list --count "$BASE_BRANCH..$b" 2>/dev/null || echo "?")
-    gh label create dispatch-incomplete \
-      --repo "$OWNER/$REPO" \
-      --description "A dispatch died mid-implementation; resume from the branch named in the issue comment" \
-      --color D93F0B 2>/dev/null || true
-    gh issue edit "$n" --repo "$OWNER/$REPO" --add-label dispatch-incomplete >/dev/null 2>&1 || true
-    gh issue comment "$n" --repo "$OWNER/$REPO" --body "## Dispatch Incomplete
+    harness_ensure_label dispatch-incomplete \
+      "A dispatch died mid-implementation; resume from the branch named in the issue comment" \
+      D93F0B
+    harness_issue_add_label "$n" dispatch-incomplete
+    comment_body="## Dispatch Incomplete
 
 A dispatch run ended without opening a PR. Partial state:
 
@@ -249,7 +175,8 @@ A dispatch run ended without opening a PR. Partial state:
 - **Session**: \`${session_id:-unknown}\` (context recoverable via \`claude -p --resume <session-id>\`)
 - **Detected**: $(date '+%Y-%m-%d %H:%M:%S')
 
-The next dispatch cycle will pick this issue up via the \`dispatch-incomplete\` label and resume from the branch (execute-plan resume mode). Remove the label to take over manually." >/dev/null 2>&1 || true
+The next dispatch cycle will pick this issue up via the \`dispatch-incomplete\` label and resume from the branch (execute-plan resume mode). Remove the label to take over manually."
+    harness_issue_comment "$n" "$comment_body"
     log "INCOMPLETE: issue #$n left In Progress with no PR — labeled dispatch-incomplete (branch=$b session=${session_id:-unknown})"
   done <<< "$issue_branches"
   return 0

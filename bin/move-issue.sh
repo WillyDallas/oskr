@@ -22,9 +22,7 @@ if [[ "${HARNESS_TOKEN_REPORT:-on}" != "off" && -x "$TOKEN_REPORT_SCRIPT" ]]; th
   TRIGGER_SLUG="${HARNESS_TRIGGER_SLUG:-}"
 
   if [[ -z "$ISSUE_NUM" ]]; then
-    # shellcheck disable=SC2016
-    ISSUE_NUM=$(gh api graphql -f query='query($id: ID!) { node(id: $id) { ... on ProjectV2Item { content { ... on Issue { number } } } } }' \
-      -F id="$ITEM_ID" --jq '.data.node.content.number' 2>/dev/null || true)
+    ISSUE_NUM=$(harness_item_issue_number "$ITEM_ID" 2>/dev/null || true)
   fi
 
   if [[ -z "$TRIGGER_SLUG" ]]; then
