@@ -75,5 +75,7 @@ A cleared-context session can cold-start any Area from these sources (in-repo un
   raw→distill→wiki pattern to lift · issue #7.
 - **#29 Clients (mixed):** *external* `../squirrlylabs/WORKSPACE.md` — the registry of clients
   (sluice, coremyotherapy) + migration sequence · issue #16 (adopt-existing path).
-- **#30 Learning (teach):** vendored skill source `docs/reference/teach/` (SKILL.md + FORMAT files) ·
-  audit `docs/research/2026-06-22-mattpocock-skills-audit.md` (techniques to extract).
+- **#30 Learning (teach):** vendored source `docs/reference/mattpocock-skills/skills/productivity/teach/`
+  (SKILL.md + FORMAT files) · audit `docs/research/2026-06-22-mattpocock-skills-audit.md`.
+- **#33 Skill-creation meta-skill:** `docs/reference/mattpocock-skills/skills/productivity/writing-great-skills/`
+  + `docs/reference/mattpocock-skills/docs/invocation.md` (user-invoked vs model-invoked).
