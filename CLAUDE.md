@@ -6,15 +6,14 @@ build step; Claude Code is the runtime.
 
 ## Versioning — every PR bumps the manifest
 
-**Every PR bumps `version` in `.claude-plugin/plugin.json`.** oskr pins an explicit version, so
-Claude Code caches installed plugins by that string — a PR that ships changes without a bump is
-invisible to anyone who already installed oskr. The bump *is* the release signal.
+**Every PR bumps `version` in `.claude-plugin/plugin.json`** as a change-tracking signal.
 
 - **patch** — fixes, docs, refactors (no new capability)
 - **minor** — a new skill, agent, or command (pre-1.0, so minor carries features)
 - **major** — first stable release / breaking change to the plugin contract
 
-Full distribution strategy (marketplace catalog, ref pinning): see issue #38 and `CONTRIBUTING.md`.
+This is a tracking convention, **not a finalized update strategy** — how updates reach installed
+users (pin-and-bump vs unversioned/track-SHA vs marketplace ref) is open in #38.
 
 ## Authoring skills
 

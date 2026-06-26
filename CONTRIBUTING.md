@@ -10,10 +10,9 @@ Implementation cycle described in `docs/harness-config.schema.md`.
 
 ## Versioning
 
-**Every PR bumps `version` in `.claude-plugin/plugin.json`.** Oskr pins an
-explicit version, so Claude Code caches installed plugins by that string — a
-PR that ships changes without a bump is invisible to anyone who already
-installed oskr (they see no update). The bump *is* the release signal.
+**Every PR bumps `version` in `.claude-plugin/plugin.json`.** This is a
+change-tracking discipline — the bump is a human-readable signal of what each
+PR ships.
 
 Use semver judgment (pre-1.0, so minor carries features):
 - **patch** (`0.1.0 → 0.1.1`) — fixes, docs, refactors, no new capability.
@@ -22,4 +21,8 @@ Use semver judgment (pre-1.0, so minor carries features):
 - **major** (`0.x → 1.0.0`) — reserved for the first stable release / a
   breaking change to the plugin contract.
 
-See #38 for the full distribution strategy (marketplace catalog, ref pinning).
+**Not yet decided: how updates actually reach installed users.** Today oskr
+pins an explicit version and Claude Code caches by that string, so a bump is
+what would surface an update — but whether we keep pin-and-bump, move to an
+unversioned/track-SHA scheme, or pin a marketplace ref is **open in #38**.
+Treat the bump as a tracking convention, not a finalized distribution strategy.
