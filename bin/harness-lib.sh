@@ -694,3 +694,101 @@ _blacksmith_forgejo_read_deps() {
       url: .html_url
     } ]'
 }
+
+# On Forgejo the issue IS the board item, so the "item handle" callers pass around
+# is just the issue number. find_item echoes it back if the issue exists.
+_blacksmith_forgejo_find_item() {
+  local issue="$1" owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  if _blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}" >/dev/null 2>&1; then
+    printf '%s' "$issue"
+  fi
+}
+
+# The handle already IS the issue number.
+_blacksmith_forgejo_item_issue_number() { printf '%s' "$1"; }
+
+# Create an issue (+ initial status/backlog and any csv labels, by name). Echoes
+# the neutral { number, url }. Requires the scoped labels to exist on the repo
+# (provisioned in setup); a missing label is tolerated so the issue still lands.
+#   create_issue <title> [body] [labels_csv]
+_blacksmith_forgejo_create_issue() {
+  local title="$1" body="${2:-}" labels_csv="${3:-}" owner repo raw number url
+  [[ -n "$title" ]] || { _blacksmith_die "create_issue: title required"; return 1; }
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues" \
+        "$(jq -nc --arg t "$title" --arg b "$body" '{title:$t, body:$b}')") \
+    || { _blacksmith_die "create_issue (forgejo) failed"; return 1; }
+  number=$(jq -er '.number' <<<"$raw")  || { _blacksmith_die "create_issue: no number in response"; return 1; }
+  url=$(jq -r '.html_url' <<<"$raw")
+  local -a names=("status/backlog")
+  if [[ -n "$labels_csv" ]]; then
+    local -a extra=(); IFS=',' read -ra extra <<<"$labels_csv"
+    names+=("${extra[@]+"${extra[@]}"}")
+  fi
+  local labels_json; labels_json=$(printf '%s\n' "${names[@]}" | jq -R . | jq -sc '{labels: .}')
+  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${number}/labels" "$labels_json" >/dev/null 2>&1 || true
+  jq -nc --argjson n "$number" --arg u "$url" '{number: $n, url: $u}'
+}
+
+# Move an issue to a column by adding the exclusive status/<slug> label. The
+# exclusive flag auto-evicts the previous status/* label in one atomic call
+# (verified live). column may be a slug or display name; normalize to the slug.
+#   move_issue <issue_number> <column>
+_blacksmith_forgejo_move_issue() {
+  local issue="$1" column="$2" owner repo slug
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  slug=$(_blacksmith_normalize_slug "$column")
+  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${issue}/labels" \
+    "$(jq -nc --arg l "status/${slug}" '{labels: [$l]}')" >/dev/null \
+    || { _blacksmith_die "move_issue (forgejo) failed: #$issue -> status/$slug"; return 1; }
+}
+
+# Echo the column DISPLAY NAME for an issue (read off its status/* label), or
+# empty if uncolumned. Display name resolved via config, identical to GitHub.
+_blacksmith_forgejo_issue_status() {
+  local issue="$1" owner repo raw slug
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}") || return 1
+  slug=$(printf '%s' "$raw" | jq -r '
+    [ (.labels // [])[].name | select(startswith("status/")) ][0] // "" | sub("^status/"; "")')
+  [[ -n "$slug" ]] || return 0
+  _blacksmith_display_name_for "$slug"
+}
+
+# The handle is the issue number, so item_status == issue_status.
+_blacksmith_forgejo_item_status() { _blacksmith_forgejo_issue_status "$@"; }
+
+# Ensure a label exists (idempotent; never fails the caller). Forgejo wants a
+# '#'-prefixed hex color; the neutral callers pass bare hex (GitHub style).
+_blacksmith_forgejo_ensure_label() {
+  local name="$1" description="${2:-}" color="${3:-888888}" owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  [[ "$color" == \#* ]] || color="#$color"
+  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/labels" \
+    "$(jq -nc --arg n "$name" --arg d "$description" --arg c "$color" '{name:$n, description:$d, color:$c}')" \
+    >/dev/null 2>&1 || true
+}
+
+# Add a label to an issue by name (never fails the caller).
+_blacksmith_forgejo_issue_add_label() {
+  local issue="$1" label="$2" owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${issue}/labels" \
+    "$(jq -nc --arg l "$label" '{labels: [$l]}')" >/dev/null 2>&1 || true
+}
+
+# Post a comment on an issue (never fails the caller).
+_blacksmith_forgejo_issue_comment() {
+  local issue="$1" body="$2" owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${issue}/comments" \
+    "$(jq -nc --arg b "$body" '{body: $b}')" >/dev/null 2>&1 || true
+}

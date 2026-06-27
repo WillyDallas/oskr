@@ -10,8 +10,28 @@
 printf 'curl %s\n' "$*" >> "$CURL_SHIM_CALL_LOG"
 
 args="$*"
-if [[ "$args" == *"/dependencies"* && -n "${CURL_SHIM_DEPS_FIXTURE:-}" ]]; then
-  cat "$CURL_SHIM_DEPS_FIXTURE"; exit 0
+# Routes, most-specific first (Forgejo REST endpoints under /api/v1).
+if [[ "$args" == *"/dependencies"* ]]; then
+  [[ -n "${CURL_SHIM_DEPS_FIXTURE:-}" ]] && { cat "$CURL_SHIM_DEPS_FIXTURE"; exit 0; }
+  echo '[]'; exit 0
+fi
+if [[ "$args" == */issues/*/labels* ]]; then            # add issue labels (move / create / add_label)
+  [[ -n "${CURL_SHIM_ISSUE_LABELS_FIXTURE:-}" ]] && { cat "$CURL_SHIM_ISSUE_LABELS_FIXTURE"; exit 0; }
+  echo '[{"name":"status/backlog"}]'; exit 0
+fi
+if [[ "$args" == */issues/*/comments* ]]; then          # post comment
+  echo '{"id":1}'; exit 0
+fi
+if [[ "$args" == */repos/*/labels* ]]; then             # repo label create (ensure_label)
+  echo '{"id":1}'; exit 0
+fi
+if [[ "$args" == */issues/[0-9]* ]]; then               # GET single issue (issue_status / find_item)
+  [[ -n "${CURL_SHIM_ISSUE_FIXTURE:-}" ]] && { cat "$CURL_SHIM_ISSUE_FIXTURE"; exit 0; }
+  echo '{}'; exit 0
+fi
+if [[ "$args" == *"/issues"* ]]; then                   # POST create issue
+  [[ -n "${CURL_SHIM_CREATE_FIXTURE:-}" ]] && { cat "$CURL_SHIM_CREATE_FIXTURE"; exit 0; }
+  echo '{}'; exit 0
 fi
 echo "curl-shim: no route for: $args" >&2
 exit 22
