@@ -11,7 +11,7 @@
 #
 # If `--jq <expr>` (or `-q <expr>`) is present, the chosen JSON is piped through
 # `jq -r <expr>`, mirroring real gh — so functions that rely on gh's own --jq
-# (e.g. harness_find_item) are testable. Functions that pipe to a separate `jq`
+# (e.g. blacksmith_find_item) are testable. Functions that pipe to a separate `jq`
 # (e.g. discovery) are unaffected since they pass no --jq.
 : "${GH_SHIM_FIXTURE:?GH_SHIM_FIXTURE not set}"
 : "${GH_SHIM_CALL_LOG:?GH_SHIM_CALL_LOG not set}"

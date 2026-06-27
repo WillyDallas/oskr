@@ -34,25 +34,25 @@ source "$SCRIPT_DIR/harness-lib.sh"
 # backend functions, which fail loudly if config is missing.
 
 # Base branch from harness-config; default main. Used by the post-run completion check.
-BASE_BRANCH=$(harness_config_get '.base_branch' 2>/dev/null || echo "main")
+BASE_BRANCH=$(blacksmith_config_get '.base_branch' 2>/dev/null || echo "main")
 [[ -n "$BASE_BRANCH" && "$BASE_BRANCH" != "null" ]] || BASE_BRANCH="main"
 # In Progress display name (honors workflow.column_names aliases) — used by the
 # candidate filter (dropped-work recovery) and the completion check.
-INPROGRESS_NAME=$(_harness_display_name_for in_progress)
+INPROGRESS_NAME=$(_blacksmith_display_name_for in_progress)
 
 # Build the JSON array of actionable column display names from workflow.actionable_columns.
-# _harness_display_name_for honors any aliases in workflow.column_names; dispatcher
+# _blacksmith_display_name_for honors any aliases in workflow.column_names; dispatcher
 # is the only consumer of that private helper.
 ACTIONABLE_NAMES_JSON=$(
   while IFS= read -r slug; do
-    _harness_display_name_for "$slug"
-  done < <(harness_config_get_array '.workflow.actionable_columns') \
+    _blacksmith_display_name_for "$slug"
+  done < <(blacksmith_config_get_array '.workflow.actionable_columns') \
     | jq -R . | jq -s .
 ) || { log "ERROR: failed to resolve workflow.actionable_columns"; exit 1; }
 
 # --- Query the board ---
-# harness_list_board paginates and assembles the GitHub-native board blob.
-BOARD_STATE=$(harness_list_board) || { log "ERROR: failed to query board"; exit 1; }
+# blacksmith_list_board paginates and assembles the GitHub-native board blob.
+BOARD_STATE=$(blacksmith_list_board) || { log "ERROR: failed to query board"; exit 1; }
 BOARD_TOTAL=$(echo "$BOARD_STATE" | jq '.data.repository.projectV2.items.totalCount')
 BOARD_RETURNED=$(echo "$BOARD_STATE" | jq '.data.repository.projectV2.items.nodes | length')
 
@@ -157,16 +157,16 @@ verify_dispatch_completion() {
 
   while read -r n b; do
     [[ -z "$n" ]] && continue
-    status=$(harness_issue_status "$n")
+    status=$(blacksmith_issue_status "$n")
     [[ "$status" != "$INPROGRESS_NAME" ]] && continue
-    open_prs=$(harness_pr_open_count "$b")
+    open_prs=$(blacksmith_pr_open_count "$b")
     [[ "$open_prs" != "0" ]] && continue
 
     commits=$(git -C "$PROJECT_DIR" rev-list --count "$BASE_BRANCH..$b" 2>/dev/null || echo "?")
-    harness_ensure_label dispatch-incomplete \
+    blacksmith_ensure_label dispatch-incomplete \
       "A dispatch died mid-implementation; resume from the branch named in the issue comment" \
       D93F0B
-    harness_issue_add_label "$n" dispatch-incomplete
+    blacksmith_issue_add_label "$n" dispatch-incomplete
     comment_body="## Dispatch Incomplete
 
 A dispatch run ended without opening a PR. Partial state:
@@ -176,7 +176,7 @@ A dispatch run ended without opening a PR. Partial state:
 - **Detected**: $(date '+%Y-%m-%d %H:%M:%S')
 
 The next dispatch cycle will pick this issue up via the \`dispatch-incomplete\` label and resume from the branch (execute-plan resume mode). Remove the label to take over manually."
-    harness_issue_comment "$n" "$comment_body"
+    blacksmith_issue_comment "$n" "$comment_body"
     log "INCOMPLETE: issue #$n left In Progress with no PR — labeled dispatch-incomplete (branch=$b session=${session_id:-unknown})"
   done <<< "$issue_branches"
   return 0

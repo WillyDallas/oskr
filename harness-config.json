@@ -1,5 +1,6 @@
 {
   "name": "oskr",
+  "forge": "github",
   "github": {
     "owner": "WillyDallas",
     "repo": "oskr",

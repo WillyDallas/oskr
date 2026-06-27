@@ -36,7 +36,7 @@ source "$SCRIPT_DIR/harness-lib.sh"
 CONTEXT="${1:-sync}"
 
 # Base branch from harness-config (resolved against CWD's consumer repo); default main.
-BASE=$(harness_config_get '.base_branch' 2>/dev/null || echo "main")
+BASE=$(blacksmith_config_get '.base_branch' 2>/dev/null || echo "main")
 [[ -n "$BASE" && "$BASE" != "null" ]] || BASE="main"
 
 note() { echo "[sync-worktree:$CONTEXT] $*" >&2; }
