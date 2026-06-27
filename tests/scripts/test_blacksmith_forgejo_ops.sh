@@ -41,4 +41,32 @@ L4="$SHIM_DIR/f.log"; : > "$L4"
 fi=$(CURL_SHIM_ISSUE_FIXTURE="$FIX/forgejo-issue.json" run "$L4" "blacksmith_find_item 2")
 assert_eq "2" "$fi" "forgejo find_item -> issue number" || exit 1
 
+# list_board -> the SAME neutral { total, items } shape as GitHub, synthesized from
+# scoped labels (status mapped to display name, scoped labels stripped, blocking=0).
+L5="$SHIM_DIR/lb.log"; : > "$L5"
+board=$(CURL_SHIM_LIST_FIXTURE="$FIX/forgejo-issues-list.json" run "$L5" "blacksmith_list_board")
+assert_eq "2"       "$(jq '.total' <<<"$board")"             "forgejo list_board total"        || exit 1
+assert_eq "Ready"   "$(jq -r '.items[0].status' <<<"$board")" "status synthesized from label"  || exit 1
+assert_eq "p1"      "$(jq -r '.items[0].priority' <<<"$board")" "priority from label"          || exit 1
+assert_eq '["bug"]' "$(jq -c '.items[0].labels' <<<"$board")" "scoped labels stripped"         || exit 1
+assert_eq "0"       "$(jq '.items[0].blocking' <<<"$board")"  "blocking 0 (rank-only, no gate)" || exit 1
+assert_eq "Backlog" "$(jq -r '.items[1].status' <<<"$board")" "second item status"             || exit 1
+
+# count_actionable (config actionable_columns=[ready]) -> 1 (only #10 is in Ready).
+L6="$SHIM_DIR/ca.log"; : > "$L6"
+ca=$(CURL_SHIM_LIST_FIXTURE="$FIX/forgejo-issues-list.json" run "$L6" "blacksmith_count_actionable")
+assert_eq "1" "$ca" "forgejo count_actionable" || exit 1
+
+# Body-fence helpers (the one forced body-parse path) — pure text, no network.
+fence() { bash -c "source '$LIB'; $1 \"\$1\" \"\${2:-}\"" _ "$2" "${3:-}"; }
+FB=$'intro\n<!-- blacksmith:children -->\n- [ ] #4\n- [ ] #5\n<!-- /blacksmith:children -->\ntail'
+assert_eq "4,5,"   "$(fence _blacksmith_fj_children_nums "$FB" | tr '\n' ',')" "fence: parse child numbers" || exit 1
+G1=$(fence _blacksmith_fj_children_rewrite "$FB" 6)
+assert_eq "4,5,6," "$(fence _blacksmith_fj_children_nums "$G1" | tr '\n' ',')" "fence: rewrite adds+sorts"  || exit 1
+G2=$(fence _blacksmith_fj_children_rewrite "$G1" 4)
+assert_eq "4,5,6," "$(fence _blacksmith_fj_children_nums "$G2" | tr '\n' ',')" "fence: idempotent re-add"  || exit 1
+# rewriting an empty body creates a fresh fence.
+G3=$(fence _blacksmith_fj_children_rewrite "" 7)
+assert_eq "7,"     "$(fence _blacksmith_fj_children_nums "$G3" | tr '\n' ',')" "fence: fresh fence on empty body" || exit 1
+
 echo "test_blacksmith_forgejo_ops: PASS"

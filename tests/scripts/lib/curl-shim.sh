@@ -25,6 +25,10 @@ fi
 if [[ "$args" == */repos/*/labels* ]]; then             # repo label create (ensure_label)
   echo '{"id":1}'; exit 0
 fi
+if [[ "$args" == *"/issues?"* ]]; then                  # GET issues list (list_board / count_actionable)
+  [[ -n "${CURL_SHIM_LIST_FIXTURE:-}" ]] && { cat "$CURL_SHIM_LIST_FIXTURE"; exit 0; }
+  echo '[]'; exit 0
+fi
 if [[ "$args" == */issues/[0-9]* ]]; then               # GET single issue (issue_status / find_item)
   [[ -n "${CURL_SHIM_ISSUE_FIXTURE:-}" ]] && { cat "$CURL_SHIM_ISSUE_FIXTURE"; exit 0; }
   echo '{}'; exit 0

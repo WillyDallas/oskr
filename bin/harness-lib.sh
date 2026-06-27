@@ -792,3 +792,133 @@ _blacksmith_forgejo_issue_comment() {
   _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${issue}/comments" \
     "$(jq -nc --arg b "$body" '{body: $b}')" >/dev/null 2>&1 || true
 }
+
+# Echo the whole board in the backend-NEUTRAL shape (same as the GitHub backend):
+#   { total, items:[ {number,title,status,priority,category,createdAt,body,
+#                     assignees,comments,labels,blocking,blockedBy} ] }
+# Synthesized from labels: status/priority/category come from the scoped labels
+# (status mapped slug->display name, identical to GitHub); `labels` excludes the
+# scoped ones. blocking/blockedBy are 0 (Forgejo's issue list carries no dep count;
+# the dispatcher RANKS by them but never GATES, so this degrades ranking only).
+_blacksmith_forgejo_list_board() {
+  local owner repo raw smap
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues?type=issues&state=all&limit=100") || return 1
+  smap=$(for s in backlog research needs_input planning approval ready in_progress in_review "done"; do
+           printf '%s\t%s\n' "$s" "$(_blacksmith_display_name_for "$s")"
+         done | jq -R 'split("\t") | {key: .[0], value: .[1]}' | jq -sc 'from_entries')
+  printf '%s' "$raw" | jq -c --argjson smap "$smap" '
+    [ .[]
+      | ([ (.labels // [])[].name ]) as $labs
+      | ($labs | map(select(startswith("status/")))   | (.[0] // "") | sub("^status/";"")) as $sslug
+      | ($labs | map(select(startswith("priority/"))) | (.[0] // "") | sub("^priority/";"")) as $pslug
+      | ($labs | map(select(startswith("category/"))) | (.[0] // "") | sub("^category/";"")) as $cslug
+      | {
+          number,
+          title,
+          status:   (if $sslug=="" then null else ($smap[$sslug] // $sslug) end),
+          priority: (if $pslug=="" then null else $pslug end),
+          category: (if $cslug=="" then null else $cslug end),
+          createdAt: .created_at,
+          body: (.body // ""),
+          assignees: [ (.assignees // [])[].login ],
+          comments: [],
+          labels: [ $labs[] | select((startswith("status/") or startswith("priority/") or startswith("size/") or startswith("category/")) | not) ],
+          blocking: 0,
+          blockedBy: 0
+        }
+    ] | { total: length, items: . }'
+}
+
+# Echo the count of actionable issues (same filter as the GitHub backend); reuses
+# the neutral board so the logic lives in one place.
+_blacksmith_forgejo_count_actionable() {
+  local actionable_json inprogress
+  actionable_json=$(
+    while IFS= read -r slug; do _blacksmith_display_name_for "$slug"; done \
+      < <(blacksmith_config_get_array '.workflow.actionable_columns') | jq -R . | jq -sc .
+  )
+  inprogress=$(_blacksmith_display_name_for in_progress)
+  _blacksmith_forgejo_list_board | jq --argjson act "$actionable_json" --arg ip "$inprogress" '
+    [ .items[]
+      | select( (.status as $n | $act | index($n))
+                or (.status == $ip and (((.labels // []) | index("dispatch-incomplete")) != null)) )
+      | select(((.labels // []) | index("loop-skip")) | not)
+    ] | length'
+}
+
+# Archive = drop the issue off the board view by removing its status/* label
+# (the issue itself is untouched). Forgejo has no project card to archive; this is
+# the labels-as-columns analog. Never fails the caller.
+_blacksmith_forgejo_archive_item() {
+  local issue="$1" owner repo lid
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  lid=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}/labels" 2>/dev/null \
+        | jq -r '[.[] | select(.name | startswith("status/"))][0].id // empty')
+  [[ -n "$lid" ]] || return 0
+  _blacksmith_forgejo_curl DELETE "/repos/${owner}/${repo}/issues/${issue}/labels/${lid}" >/dev/null 2>&1 || true
+}
+
+# --- Parent/child hierarchy (body-fenced; the one forced body-parse case) ---
+# Forgejo has no native sub-issues, so containment is an adapter-owned, HTML-comment-
+# fenced checklist in the PARENT body (canonical), parsed ONLY inside the fence.
+
+# Rebuild the parent body with <child> added to the fenced child list. Pure text.
+_blacksmith_fj_children_rewrite() {
+  local body="$1" child="$2"
+  local open="<!-- blacksmith:children -->" close="<!-- /blacksmith:children -->"
+  local existing nums stripped fence n
+  existing=$(printf '%s' "$body" | awk -v o="$open" -v c="$close" \
+    '$0==o{inf=1;next} $0==c{inf=0;next} inf{print}' | grep -oE '#[0-9]+' | tr -d '#')
+  nums=$(printf '%s\n%s\n' "$existing" "$child" | grep -E '^[0-9]+$' | sort -n -u)
+  stripped=$(printf '%s' "$body" | awk -v o="$open" -v c="$close" \
+    '$0==o{skip=1} !skip{print} $0==c{skip=0}')
+  fence="$open"$'\n'
+  while IFS= read -r n; do [[ -n "$n" ]] && fence+="- [ ] #${n}"$'\n'; done <<< "$nums"
+  fence+="$close"
+  printf '%s\n\n%s\n' "$(printf '%s' "$stripped" | sed -e 's/[[:space:]]*$//')" "$fence"
+}
+
+# Echo the child numbers in the parent's fenced list, one per line.
+_blacksmith_fj_children_nums() {
+  local body="$1" open="<!-- blacksmith:children -->" close="<!-- /blacksmith:children -->"
+  printf '%s' "$body" | awk -v o="$open" -v c="$close" \
+    '$0==o{inf=1;next} $0==c{inf=0;next} inf{print}' | grep -oE '#[0-9]+' | tr -d '#' | sort -n -u
+}
+
+# Link a child under a parent: add it to the parent's fenced checklist (canonical)
+# and drop a parent marker in the child body. link_parent <parent> <child>
+_blacksmith_forgejo_link_parent() {
+  local parent="$1" child="$2" owner repo pbody nbody cbody
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  pbody=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${parent}" | jq -r '.body // ""') \
+    || { _blacksmith_die "link_parent: cannot read parent #$parent"; return 1; }
+  nbody=$(_blacksmith_fj_children_rewrite "$pbody" "$child")
+  _blacksmith_forgejo_curl PATCH "/repos/${owner}/${repo}/issues/${parent}" \
+    "$(jq -nc --arg b "$nbody" '{body: $b}')" >/dev/null \
+    || { _blacksmith_die "link_parent: failed to update parent #$parent"; return 1; }
+  cbody=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${child}" | jq -r '.body // ""')
+  if ! printf '%s' "$cbody" | grep -q 'blacksmith:parent'; then
+    _blacksmith_forgejo_curl PATCH "/repos/${owner}/${repo}/issues/${child}" \
+      "$(jq -nc --arg b "${cbody}"$'\n\n'"<!-- blacksmith:parent #${parent} -->" '{body: $b}')" >/dev/null 2>&1 || true
+  fi
+}
+
+# Echo a parent's children as the neutral array [ {number,state,title,url} ], read
+# from the fenced list (then one fetch per child for state/title/url).
+_blacksmith_forgejo_list_children() {
+  local parent="$1" owner repo pbody items n ci
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  pbody=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${parent}" | jq -r '.body // ""') || return 1
+  items="[]"
+  while IFS= read -r n; do
+    [[ -n "$n" ]] || continue
+    ci=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${n}" 2>/dev/null) || continue
+    items=$(printf '%s' "$ci" | jq -c --argjson acc "$items" '$acc + [{number, state, title, url: .html_url}]')
+  done <<< "$(_blacksmith_fj_children_nums "$pbody")"
+  printf '%s' "$items"
+}
