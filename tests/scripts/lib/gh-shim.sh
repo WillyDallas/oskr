@@ -42,6 +42,13 @@ if [[ "$args" == *updateProjectV2ItemFieldValue* ]]; then
   printf '%s' '{"data":{"updateProjectV2ItemFieldValue":{"projectV2Item":{"id":"PVTI_test"}}}}' | emit
   exit 0
 fi
+if [[ "$args" == *addProjectV2ItemById* ]]; then
+  printf '%s' '{"data":{"addProjectV2ItemById":{"item":{"id":"PVTI_created"}}}}' | emit
+  exit 0
+fi
+if [[ "$args" == *"title="* && -n "${GH_SHIM_CREATE_ISSUE_FIXTURE:-}" ]]; then
+  emit < "$GH_SHIM_CREATE_ISSUE_FIXTURE"; exit 0
+fi
 if [[ "$args" == *projectItems* && -n "${GH_SHIM_FIND_ITEM_FIXTURE:-}" ]]; then
   emit < "$GH_SHIM_FIND_ITEM_FIXTURE"; exit 0
 fi

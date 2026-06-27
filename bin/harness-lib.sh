@@ -96,6 +96,7 @@ blacksmith_issue_comment()     { _blacksmith_dispatch issue_comment "$@"; }
 # #26 graph/write primitives (added per slice). Native-first on each forge;
 # normalized to a backend-neutral shape so the dispatcher never parses prose.
 blacksmith_read_deps()         { _blacksmith_dispatch read_deps "$@"; }
+blacksmith_create_issue()      { _blacksmith_dispatch create_issue "$@"; }
 
 # --- column-vocabulary helpers (forge-agnostic) ----------------------------
 
@@ -565,6 +566,43 @@ _blacksmith_github_read_deps() {
       repository: (.repository.full_name // ((.repository_url // "") | sub("^https?://[^/]+/repos/"; ""))),
       url: .html_url
     } ]'
+}
+
+# --- Issue creation (native; #26 slice 3) ----------------------------------
+
+# Create an issue and add it to the configured Project v2 board. Echoes the
+# backend-neutral result: { number, url }. (The Project item id is GitHub-only,
+# so it is NOT in the neutral output — callers compose move/set by number.)
+#   create_issue <title> [body] [labels_csv]
+_blacksmith_github_create_issue() {
+  local title="$1" body="${2:-}" labels_csv="${3:-}"
+  local owner repo raw number node_id url project_id
+  local -a label_args=()
+  [[ -n "$title" ]] || { _blacksmith_die "create_issue: title required"; return 1; }
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  if [[ -n "$labels_csv" ]]; then
+    local l; local -a _labels=()
+    IFS=',' read -ra _labels <<< "$labels_csv"   # IFS scoped to this read only
+    for l in "${_labels[@]}"; do label_args+=( -f "labels[]=$l" ); done
+  fi
+  raw=$(gh api "repos/${owner}/${repo}/issues" -f title="$title" -f body="$body" "${label_args[@]}" 2>/dev/null) \
+    || { _blacksmith_die "create_issue failed (gh api)"; return 1; }
+  number=$(printf '%s' "$raw" | jq -er '.number')  || { _blacksmith_die "create_issue: no number in response"; return 1; }
+  node_id=$(printf '%s' "$raw" | jq -er '.node_id') || { _blacksmith_die "create_issue: no node_id in response"; return 1; }
+  url=$(printf '%s' "$raw" | jq -r '.html_url')
+  # Add the new issue to the configured Project v2 board (GraphQL, not preview REST).
+  project_id=$(_blacksmith_github_project_id) || return 1
+  # shellcheck disable=SC2016
+  gh api graphql -f query='
+    mutation($project: ID!, $content: ID!) {
+      addProjectV2ItemById(input: { projectId: $project, contentId: $content }) {
+        item { id }
+      }
+    }
+  ' -f project="$project_id" -f content="$node_id" >/dev/null 2>&1 \
+    || { _blacksmith_die "create_issue: created #$number but failed to add it to the board"; return 1; }
+  jq -nc --argjson n "$number" --arg u "$url" '{number: $n, url: $u}'
 }
 
 # ===========================================================================
