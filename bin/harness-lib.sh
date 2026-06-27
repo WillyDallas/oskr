@@ -97,6 +97,8 @@ blacksmith_issue_comment()     { _blacksmith_dispatch issue_comment "$@"; }
 # normalized to a backend-neutral shape so the dispatcher never parses prose.
 blacksmith_read_deps()         { _blacksmith_dispatch read_deps "$@"; }
 blacksmith_create_issue()      { _blacksmith_dispatch create_issue "$@"; }
+blacksmith_link_parent()       { _blacksmith_dispatch link_parent "$@"; }
+blacksmith_list_children()     { _blacksmith_dispatch list_children "$@"; }
 
 # --- column-vocabulary helpers (forge-agnostic) ----------------------------
 
@@ -603,6 +605,34 @@ _blacksmith_github_create_issue() {
   ' -f project="$project_id" -f content="$node_id" >/dev/null 2>&1 \
     || { _blacksmith_die "create_issue: created #$number but failed to add it to the board"; return 1; }
   jq -nc --argjson n "$number" --arg u "$url" '{number: $n, url: $u}'
+}
+
+# --- Parent/child hierarchy (native sub-issues; #26 slice 4) ---------------
+
+# Link a child issue under a parent via native GitHub sub-issues. GOTCHA: the
+# sub-issues API takes the child's DATABASE id (int64), NOT its issue number, so
+# resolve the id first. Side-effect op; no stdout on success.
+#   link_parent <parent_number> <child_number>
+_blacksmith_github_link_parent() {
+  local parent="$1" child="$2" owner repo child_id
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  child_id=$(gh api "repos/${owner}/${repo}/issues/${child}" --jq '.id' 2>/dev/null) \
+    || { _blacksmith_die "link_parent: cannot resolve child #$child"; return 1; }
+  gh api "repos/${owner}/${repo}/issues/${parent}/sub_issues" -F sub_issue_id="$child_id" >/dev/null 2>&1 \
+    || { _blacksmith_die "link_parent: failed to link #$child under #$parent"; return 1; }
+}
+
+# Echo a parent's children as a normalized JSON array: [ { number, state, title, url } ].
+# Native sub-issues query (GA 2025-04-09) — not body-parse.
+#   list_children <parent_number>
+_blacksmith_github_list_children() {
+  local parent="$1" owner repo raw
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/issues/${parent}/sub_issues?per_page=100" 2>/dev/null) \
+    || { _blacksmith_die "list_children: query failed for #$parent"; return 1; }
+  printf '%s' "$raw" | jq -c '[ .[] | { number, state, title, url: .html_url } ]'
 }
 
 # ===========================================================================

@@ -49,6 +49,12 @@ fi
 if [[ "$args" == *"title="* && -n "${GH_SHIM_CREATE_ISSUE_FIXTURE:-}" ]]; then
   emit < "$GH_SHIM_CREATE_ISSUE_FIXTURE"; exit 0
 fi
+if [[ "$args" == *sub_issue_id=* ]]; then
+  printf '%s' '{"id":1,"number":1}' | emit; exit 0
+fi
+if [[ "$args" == *sub_issues* && -n "${GH_SHIM_SUBISSUES_FIXTURE:-}" ]]; then
+  emit < "$GH_SHIM_SUBISSUES_FIXTURE"; exit 0
+fi
 if [[ "$args" == *projectItems* && -n "${GH_SHIM_FIND_ITEM_FIXTURE:-}" ]]; then
   emit < "$GH_SHIM_FIND_ITEM_FIXTURE"; exit 0
 fi
