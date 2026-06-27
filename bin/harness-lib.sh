@@ -381,12 +381,14 @@ _blacksmith_github_issue_status() {
 
 # --- Board listing ---------------------------------------------------------
 
-# Echo the full board as a GitHub-native blob, paginating internally:
-#   {data:{repository:{projectV2:{items:{totalCount, nodes:[…]}}}}}
-# NOTE: the node shape is GitHub-native (status.name / priority.name /
-# category.name / content.{…}). Normalizing it to a backend-neutral shape so a
-# Forgejo backend can return the same is slice 5 of #26 (see PRD); for now the
-# Forgejo backend must synthesize this exact shape.
+# Echo the full board in the backend-NEUTRAL shape (#26 slice 5), paginating
+# internally:
+#   { total: <int>, items: [ { number, title, status, priority, category,
+#     createdAt, body, assignees:[login], comments:[body], labels:[name],
+#     blocking:<int>, blockedBy:<int> } ] }
+# status/priority/category are column DISPLAY NAMES (resolved identically by both
+# forges via config). The Forgejo backend synthesizes this same shape from labels
+# + native dep counts. `total` is the forge's item count (pagination integrity).
 _blacksmith_github_list_board() {
   local owner repo number after page board_total has_next nodes_file assembled rc
   owner=$(blacksmith_config_get '.github.owner')          || return 1
@@ -446,7 +448,20 @@ _blacksmith_github_list_board() {
   done
   # Assemble, then clean up — but return the assembly's status, not rm's, so a
   # failed final jq is surfaced rather than masked by a successful cleanup.
-  assembled=$(jq -s '{data: {repository: {projectV2: {items: {totalCount: '"$board_total"', nodes: .}}}}}' "$nodes_file")
+  assembled=$(jq -s '{total: '"$board_total"', items: [ .[] | {
+      number:    .content.number,
+      title:     .content.title,
+      status:    (.status.name   // null),
+      priority:  (.priority.name // null),
+      category:  (.category.name // null),
+      createdAt: .content.createdAt,
+      body:      .content.body,
+      assignees: [ (.content.assignees.nodes // [])[] | .login ],
+      comments:  [ (.content.comments.nodes  // [])[] | .body  ],
+      labels:    [ (.content.labels.nodes    // [])[] | .name  ],
+      blocking:  (.content.blocking.totalCount  // 0),
+      blockedBy: (.content.blockedBy.totalCount // 0)
+    } ] }' "$nodes_file")
   rc=$?
   rm -f "$nodes_file"
   printf '%s\n' "$assembled"

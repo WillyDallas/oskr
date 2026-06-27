@@ -51,10 +51,11 @@ ACTIONABLE_NAMES_JSON=$(
 ) || { log "ERROR: failed to resolve workflow.actionable_columns"; exit 1; }
 
 # --- Query the board ---
-# blacksmith_list_board paginates and assembles the GitHub-native board blob.
+# blacksmith_list_board paginates and assembles the backend-neutral board shape:
+#   { total, items: [ { number, title, status, priority, category, labels:[…], … } ] }
 BOARD_STATE=$(blacksmith_list_board) || { log "ERROR: failed to query board"; exit 1; }
-BOARD_TOTAL=$(echo "$BOARD_STATE" | jq '.data.repository.projectV2.items.totalCount')
-BOARD_RETURNED=$(echo "$BOARD_STATE" | jq '.data.repository.projectV2.items.nodes | length')
+BOARD_TOTAL=$(echo "$BOARD_STATE" | jq '.total')
+BOARD_RETURNED=$(echo "$BOARD_STATE" | jq '.items | length')
 
 if [[ "$BOARD_TOTAL" -ne "$BOARD_RETURNED" ]]; then
   log "ERROR: pagination assembled ${BOARD_RETURNED} items but totalCount=${BOARD_TOTAL}"
@@ -71,26 +72,26 @@ fi
 #   3. Blocking count: descending (unblock the most work first)
 #   4. Age: oldest createdAt first (FIFO tiebreak, prevents starvation)
 RANKED_CANDIDATES=$(echo "$BOARD_STATE" | jq --argjson actionable "$ACTIONABLE_NAMES_JSON" --arg inprogress "$INPROGRESS_NAME" '
-  [.data.repository.projectV2.items.nodes[]
-    | select(.content != null)
+  [.items[]
+    | select(.number != null)
     | select(
-        (.status.name as $n | $actionable | index($n))
-        or (.status.name == $inprogress
-            and (((.content.labels.nodes // []) | map(.name) | index("dispatch-incomplete")) != null))
+        (.status as $n | $actionable | index($n))
+        or (.status == $inprogress
+            and (((.labels // []) | index("dispatch-incomplete")) != null))
       )
-    | select(((.content.labels.nodes // []) | map(.name) | index("loop-skip")) | not)
+    | select(((.labels // []) | index("loop-skip")) | not)
     | {
         rank: 0,
-        number: .content.number,
-        title: .content.title,
-        status: .status.name,
-        priority: (.priority.name // null),
-        blocking: .content.blocking.totalCount,
-        blockedBy: .content.blockedBy.totalCount,
-        createdAt: .content.createdAt,
-        _s: (if .status.name == $inprogress then 0 elif .status.name == "Ready" then 1 elif .status.name == "Planning" then 2 else 3 end),
-        _p: (if .priority.name == "High" then 1 elif .priority.name == "Medium" then 2 elif .priority.name == "Low" then 3 else 4 end),
-        _b: (- .content.blocking.totalCount)
+        number: .number,
+        title: .title,
+        status: .status,
+        priority: (.priority // null),
+        blocking: .blocking,
+        blockedBy: .blockedBy,
+        createdAt: .createdAt,
+        _s: (if .status == $inprogress then 0 elif .status == "Ready" then 1 elif .status == "Planning" then 2 else 3 end),
+        _p: (if .priority == "High" then 1 elif .priority == "Medium" then 2 elif .priority == "Low" then 3 else 4 end),
+        _b: (- .blocking)
       }
   ]
   | sort_by([._p, ._s, ._b, .createdAt])
