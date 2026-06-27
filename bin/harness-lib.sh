@@ -1,24 +1,34 @@
 #!/usr/bin/env bash
-# harness-lib.sh — shared helpers for the oskr dispatcher scripts.
+# harness-lib.sh — the blacksmith: oskr's forge-adapter library.
 # Sourceable; not directly executable.
 #
-# Public functions (this section):
-#   harness_config_path                  — absolute path to harness-config.json
-#   harness_config_get <jq_path>         — scalar getter
-#   harness_config_get_array <jq_path>   — array getter (one element per line)
+# The "blacksmith" is the forge-agnostic board/issue operation layer. Public verbs
+# (blacksmith_*) dispatch on the project's configured `forge` (github|forgejo; default
+# github) to a per-forge implementation (_blacksmith_github_* / _blacksmith_forgejo_*).
+# Callers in bin/ MUST go through the public blacksmith_* verbs; there must be no inline
+# `gh`/forge API calls outside this file. See docs/design/platform-reframe.md,
+# docs/design/pipeline-redesign.md, and docs/research/2026-06-27-backend-capability.md.
+#
+# Layers:
+#   blacksmith_config_*        forge-agnostic config getters (NOT dispatched)
+#   _blacksmith_forge          read the configured forge slug (default github)
+#   _blacksmith_dispatch       <op> -> _blacksmith_<forge>_<op>
+#   blacksmith_<verb>          public op = one-line dispatcher
+#   _blacksmith_<forge>_<verb> the per-forge implementation
+#
+# Each function uses `command jq` is unnecessary; jq is called directly. All functions
+# either echo on stdout and return 0, or die with a message on stderr and return non-zero.
 
-# Each function uses `command jq` to avoid recursion into the test gh-shim.
-# All functions either echo on stdout and return 0, or die with a message
-# on stderr and return non-zero.
-
-_harness_die() {
-  echo "[harness] $1" >&2
+_blacksmith_die() {
+  echo "[blacksmith] $1" >&2
   return 1
 }
 
-harness_config_path() {
+# --- forge-agnostic config getters -----------------------------------------
+
+blacksmith_config_path() {
   if [[ -n "${HARNESS_CONFIG:-}" ]]; then
-    [[ -f "$HARNESS_CONFIG" ]] || { _harness_die "HARNESS_CONFIG set but file missing: $HARNESS_CONFIG"; return 1; }
+    [[ -f "$HARNESS_CONFIG" ]] || { _blacksmith_die "HARNESS_CONFIG set but file missing: $HARNESS_CONFIG"; return 1; }
     echo "$HARNESS_CONFIG"
     return 0
   fi
@@ -28,48 +38,131 @@ harness_config_path() {
   if [[ -f "$PWD/.claude/harness-config.json" ]]; then
     echo "$PWD/.claude/harness-config.json"; return 0
   fi
-  _harness_die "not in an oskr project; expected harness-config.json at \$PWD or \$PWD/.claude/"
+  _blacksmith_die "not in an oskr project; expected harness-config.json at \$PWD or \$PWD/.claude/"
   return 1
 }
 
-harness_config_get() {
+blacksmith_config_get() {
   local path="$1" cfg
-  cfg=$(harness_config_path) || return 1
+  cfg=$(blacksmith_config_path) || return 1
   jq -er "$path" "$cfg"
 }
 
-harness_config_get_array() {
+blacksmith_config_get_array() {
   local path="$1" cfg
-  cfg=$(harness_config_path) || return 1
+  cfg=$(blacksmith_config_path) || return 1
   jq -er "${path}[]" "$cfg"
 }
 
+# --- forge dispatch ---------------------------------------------------------
+
+# Echo the configured forge slug (default: github). Forge-agnostic config read;
+# a missing/unreadable config falls back to github so non-project contexts still work.
+_blacksmith_forge() {
+  local cfg forge
+  cfg=$(blacksmith_config_path 2>/dev/null) || { printf 'github'; return 0; }
+  forge=$(jq -er '.forge // "github"' "$cfg" 2>/dev/null) || forge=github
+  printf '%s' "$forge"
+}
+
+# _blacksmith_dispatch <op> [args...] -> calls _blacksmith_<forge>_<op> [args...]
+_blacksmith_dispatch() {
+  local op="$1"; shift
+  local forge fn
+  forge=$(_blacksmith_forge)
+  fn="_blacksmith_${forge}_${op}"
+  if ! declare -F "$fn" >/dev/null 2>&1; then
+    _blacksmith_die "forge '$forge' has no implementation for '$op' (missing $fn)"
+    return 1
+  fi
+  "$fn" "$@"
+}
+
+# --- public forge ops (each verb is a one-line dispatcher) ------------------
+
+blacksmith_move_issue()        { _blacksmith_dispatch move_issue "$@"; }
+blacksmith_find_item()         { _blacksmith_dispatch find_item "$@"; }
+blacksmith_item_issue_number() { _blacksmith_dispatch item_issue_number "$@"; }
+blacksmith_item_status()       { _blacksmith_dispatch item_status "$@"; }
+blacksmith_issue_status()      { _blacksmith_dispatch issue_status "$@"; }
+blacksmith_list_board()        { _blacksmith_dispatch list_board "$@"; }
+blacksmith_count_actionable()  { _blacksmith_dispatch count_actionable "$@"; }
+blacksmith_archive_item()      { _blacksmith_dispatch archive_item "$@"; }
+blacksmith_pr_open_count()     { _blacksmith_dispatch pr_open_count "$@"; }
+blacksmith_ensure_label()      { _blacksmith_dispatch ensure_label "$@"; }
+blacksmith_issue_add_label()   { _blacksmith_dispatch issue_add_label "$@"; }
+blacksmith_issue_comment()     { _blacksmith_dispatch issue_comment "$@"; }
+
+# #26 graph/write primitives (added per slice). Native-first on each forge;
+# normalized to a backend-neutral shape so the dispatcher never parses prose.
+blacksmith_read_deps()         { _blacksmith_dispatch read_deps "$@"; }
+blacksmith_create_issue()      { _blacksmith_dispatch create_issue "$@"; }
+blacksmith_link_parent()       { _blacksmith_dispatch link_parent "$@"; }
+blacksmith_list_children()     { _blacksmith_dispatch list_children "$@"; }
+
+# --- column-vocabulary helpers (forge-agnostic) ----------------------------
+
+_blacksmith_normalize_slug() {
+  local s="$1"
+  s=$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]' | tr ' ' '_')
+  printf '%s' "$s"
+}
+
+# Canonical slug → default display name
+_blacksmith_default_name_for_slug() {
+  case "$1" in
+    backlog)     echo "Backlog" ;;
+    research)    echo "Research" ;;
+    needs_input) echo "Needs Input" ;;
+    planning)    echo "Planning" ;;
+    approval)    echo "Approval" ;;
+    ready)       echo "Ready" ;;
+    in_progress) echo "In Progress" ;;
+    in_review)   echo "In Review" ;;
+    done)        echo "Done" ;;
+    *)           return 1 ;;
+  esac
+}
+
+# Echoes the display name to look up in a backend's column representation.
+# Honors workflow.column_names[<slug>] aliasing.
+_blacksmith_display_name_for() {
+  local input="$1" slug cfg alias
+  slug=$(_blacksmith_normalize_slug "$input")
+  cfg=$(blacksmith_config_path) || return 1
+  alias=$(jq -r --arg s "$slug" '.workflow.column_names[$s] // ""' "$cfg")
+  if [[ -n "$alias" ]]; then
+    printf '%s' "$alias"
+    return 0
+  fi
+  if _blacksmith_default_name_for_slug "$slug" >/dev/null 2>&1; then
+    _blacksmith_default_name_for_slug "$slug"
+    return 0
+  fi
+  # input was neither a recognized slug nor a defined alias key — pass through
+  # in case it's a literal display name typed by the caller (e.g. "Needs Developer Input").
+  printf '%s' "$input"
+}
+
 # ===========================================================================
-# BACKEND: GitHub Projects v2
+# GITHUB BACKEND (_blacksmith_github_*)
 # ---------------------------------------------------------------------------
-# Everything from here to the end of the file is the GitHub Projects v2
-# backend: the complete set of board operations (project/field discovery,
-# column resolution, issue<->item lookups, move, archive, board listing, and
-# issue/label ops). This is THE SEAM — a second backend (Forgejo, via
-# labels-as-columns) reimplements this same operation set. Callers in bin/
-# MUST go through these functions; there must be no inline `gh api graphql`
-# outside this file. See docs/design/platform-reframe.md and
-# docs/research/2026-06-22-forgejo-backend-capability.md.
-#
-# Backend SELECTION — dispatching on harness-config.json `.backend` — lands
-# with the Forgejo implementation; today there is only one backend.
+# The complete GitHub Projects v2 implementation of the blacksmith op set:
+# project/field discovery, column resolution, issue<->item lookups, move,
+# archive, board listing, and issue/label ops. A second backend (Forgejo, via
+# labels-as-columns) reimplements this same operation set as _blacksmith_forgejo_*.
 # ---------------------------------------------------------------------------
 # Project / field discovery
 #
-# This layer always hits gh; the cache layer below (_harness_get_discovery)
-# wraps it, reading from / writing to disk. _harness_discover_raw() is the
+# This layer always hits gh; the cache layer below (_blacksmith_github_get_discovery)
+# wraps it, reading from / writing to disk. _blacksmith_github_discover_raw() is the
 # uncached entry point.
 
-_harness_discover_raw() {
+_blacksmith_github_discover_raw() {
   local owner number repo
-  owner=$(harness_config_get '.github.owner') || return 1
-  repo=$(harness_config_get '.github.repo')   || return 1
-  number=$(harness_config_get '.github.project_number') || return 1
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  number=$(blacksmith_config_get '.github.project_number') || return 1
 
   # shellcheck disable=SC2016
   gh api graphql -f query='
@@ -90,20 +183,20 @@ _harness_discover_raw() {
       }
     }
   ' -F owner="$owner" -F repo="$repo" -F number="$number" 2>/dev/null \
-    || { _harness_die "GraphQL discovery failed; try: gh auth status"; return 1; }
+    || { _blacksmith_die "GraphQL discovery failed; try: gh auth status"; return 1; }
 }
 
-harness_project_id() {
-  _harness_get_discovery | jq -er '.data.repository.projectV2.id'
+_blacksmith_github_project_id() {
+  _blacksmith_github_get_discovery | jq -er '.data.repository.projectV2.id'
 }
 
-harness_status_field_id() {
-  harness_field_id "Status"
+_blacksmith_github_status_field_id() {
+  _blacksmith_github_field_id "Status"
 }
 
-harness_field_id() {
+_blacksmith_github_field_id() {
   local field_name="$1"
-  _harness_get_discovery \
+  _blacksmith_github_get_discovery \
     | jq -er --arg n "$field_name" '
         .data.repository.projectV2.fields.nodes[]
         | select(.name == $n) | .id
@@ -112,127 +205,85 @@ harness_field_id() {
 
 # --- Discovery cache -------------------------------------------------------
 
-_harness_cache_dir() {
+_blacksmith_github_cache_dir() {
   echo "${XDG_CACHE_HOME:-$HOME/.cache}/oskr"
 }
 
-_harness_cache_file() {
+_blacksmith_github_cache_file() {
   local owner repo number dir
-  owner=$(harness_config_get '.github.owner') || return 1
-  repo=$(harness_config_get '.github.repo')   || return 1
-  number=$(harness_config_get '.github.project_number') || return 1
-  dir=$(_harness_cache_dir)
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  number=$(blacksmith_config_get '.github.project_number') || return 1
+  dir=$(_blacksmith_github_cache_dir)
   echo "$dir/${number}-${owner}-${repo}.json"
 }
 
-_harness_get_discovery() {
+_blacksmith_github_get_discovery() {
   local f
-  f=$(_harness_cache_file) || return 1
+  f=$(_blacksmith_github_cache_file) || return 1
   if [[ -f "$f" ]]; then
     cat "$f"
     return 0
   fi
   mkdir -p "$(dirname "$f")"
   local raw
-  raw=$(_harness_discover_raw) || return 1
+  raw=$(_blacksmith_github_discover_raw) || return 1
   printf '%s' "$raw" > "$f"
   printf '%s' "$raw"
 }
 
-harness_cache_clear() {
+_blacksmith_github_cache_clear() {
   local f
-  f=$(_harness_cache_file) || return 1
+  f=$(_blacksmith_github_cache_file) || return 1
   rm -f "$f"
 }
 
 # --- Column resolution -----------------------------------------------------
 
-_harness_normalize_slug() {
-  local s="$1"
-  s=$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]' | tr ' ' '_')
-  printf '%s' "$s"
-}
-
-# Canonical slug → default display name
-_harness_default_name_for_slug() {
-  case "$1" in
-    backlog)     echo "Backlog" ;;
-    research)    echo "Research" ;;
-    needs_input) echo "Needs Input" ;;
-    planning)    echo "Planning" ;;
-    approval)    echo "Approval" ;;
-    ready)       echo "Ready" ;;
-    in_progress) echo "In Progress" ;;
-    in_review)   echo "In Review" ;;
-    done)        echo "Done" ;;
-    *)           return 1 ;;
-  esac
-}
-
-# Echoes the display name to look up in the GraphQL Status options.
-# Honors workflow.column_names[<slug>] aliasing.
-_harness_display_name_for() {
-  local input="$1" slug cfg alias
-  slug=$(_harness_normalize_slug "$input")
-  cfg=$(harness_config_path) || return 1
-  alias=$(jq -r --arg s "$slug" '.workflow.column_names[$s] // ""' "$cfg")
-  if [[ -n "$alias" ]]; then
-    printf '%s' "$alias"
-    return 0
-  fi
-  if _harness_default_name_for_slug "$slug" >/dev/null 2>&1; then
-    _harness_default_name_for_slug "$slug"
-    return 0
-  fi
-  # input was neither a recognized slug nor a defined alias key — pass through
-  # in case it's a literal display name typed by the caller (e.g. "Needs Developer Input").
-  printf '%s' "$input"
-}
-
-_harness_status_options_json() {
-  _harness_get_discovery \
+_blacksmith_github_status_options_json() {
+  _blacksmith_github_get_discovery \
     | jq -c '
         .data.repository.projectV2.fields.nodes[]
         | select(.name == "Status") | .options
       '
 }
 
-harness_column_option_id() {
+_blacksmith_github_column_option_id() {
   local input="$1" display options uuid
-  display=$(_harness_display_name_for "$input") || return 1
-  options=$(_harness_status_options_json) || return 1
+  display=$(_blacksmith_display_name_for "$input") || return 1
+  options=$(_blacksmith_github_status_options_json) || return 1
   uuid=$(printf '%s' "$options" | jq -r --arg n "$display" '.[] | select(.name == $n) | .id')
 
   if [[ -z "$uuid" ]]; then
     # lazy re-discover once
-    harness_cache_clear
-    options=$(_harness_status_options_json) || return 1
+    _blacksmith_github_cache_clear
+    options=$(_blacksmith_github_status_options_json) || return 1
     uuid=$(printf '%s' "$options" | jq -r --arg n "$display" '.[] | select(.name == $n) | .id')
   fi
 
   if [[ -z "$uuid" ]]; then
     local valid
     valid=$(printf '%s' "$options" | jq -r '[.[] | .name] | join(", ")')
-    _harness_die "unknown column '$input' (looked up as '$display'); valid: $valid"
+    _blacksmith_die "unknown column '$input' (looked up as '$display'); valid: $valid"
     return 1
   fi
   printf '%s' "$uuid"
 }
 
-harness_column_name_for() {
+_blacksmith_github_column_name_for() {
   local uuid="$1" options
-  options=$(_harness_status_options_json) || return 1
+  options=$(_blacksmith_github_status_options_json) || return 1
   printf '%s' "$options" | jq -er --arg id "$uuid" '.[] | select(.id == $id) | .name'
 }
 
 # --- Compound operations ---------------------------------------------------
 
-harness_move_issue() {
+_blacksmith_github_move_issue() {
   local item_id="$1" column="$2"
   local project_id field_id option_id
-  project_id=$(harness_project_id) || return 1
-  field_id=$(harness_status_field_id) || return 1
-  option_id=$(harness_column_option_id "$column") || return 1
+  project_id=$(_blacksmith_github_project_id) || return 1
+  field_id=$(_blacksmith_github_status_field_id) || return 1
+  option_id=$(_blacksmith_github_column_option_id "$column") || return 1
 
   # shellcheck disable=SC2016
   gh api graphql -f query='
@@ -253,11 +304,11 @@ harness_move_issue() {
 
 # Echo the project item id (PVTI_…) for an issue number, or empty if the issue
 # is not on the configured project board. Caller decides how to treat empty.
-harness_find_item() {
+_blacksmith_github_find_item() {
   local issue_number="$1" owner repo number
-  owner=$(harness_config_get '.github.owner')          || return 1
-  repo=$(harness_config_get '.github.repo')            || return 1
-  number=$(harness_config_get '.github.project_number') || return 1
+  owner=$(blacksmith_config_get '.github.owner')          || return 1
+  repo=$(blacksmith_config_get '.github.repo')            || return 1
+  number=$(blacksmith_config_get '.github.project_number') || return 1
   # shellcheck disable=SC2016
   gh api graphql -f query='
     query($owner: String!, $repo: String!, $number: Int!) {
@@ -277,7 +328,7 @@ harness_find_item() {
 }
 
 # Echo the issue number backing a project item id (PVTI_…), or empty.
-harness_item_issue_number() {
+_blacksmith_github_item_issue_number() {
   local item_id="$1"
   # shellcheck disable=SC2016
   gh api graphql -f query='query($id: ID!) { node(id: $id) { ... on ProjectV2Item { content { ... on Issue { number } } } } }' \
@@ -285,7 +336,7 @@ harness_item_issue_number() {
 }
 
 # Echo the Status column name for a project item id (PVTI_…).
-harness_item_status() {
+_blacksmith_github_item_status() {
   local item_id="$1"
   # shellcheck disable=SC2016
   gh api graphql -f query='
@@ -303,11 +354,11 @@ harness_item_status() {
 
 # Echo the Status column name for an issue number (looks it up on the board),
 # or empty if the issue is not on the board.
-harness_issue_status() {
+_blacksmith_github_issue_status() {
   local issue_number="$1" owner repo number
-  owner=$(harness_config_get '.github.owner')          || return 1
-  repo=$(harness_config_get '.github.repo')            || return 1
-  number=$(harness_config_get '.github.project_number') || return 1
+  owner=$(blacksmith_config_get '.github.owner')          || return 1
+  repo=$(blacksmith_config_get '.github.repo')            || return 1
+  number=$(blacksmith_config_get '.github.project_number') || return 1
   # shellcheck disable=SC2016
   gh api graphql -f query='
     query($owner: String!, $repo: String!, $number: Int!) {
@@ -330,17 +381,19 @@ harness_issue_status() {
 
 # --- Board listing ---------------------------------------------------------
 
-# Echo the full board as a GitHub-native blob, paginating internally:
-#   {data:{repository:{projectV2:{items:{totalCount, nodes:[…]}}}}}
-# NOTE: the node shape is GitHub-native (status.name / priority.name /
-# category.name / content.{…}). Normalizing it to a backend-neutral shape so a
-# Forgejo backend can return the same is a follow-up (see platform-reframe.md);
-# for now the Forgejo backend must synthesize this exact shape.
-harness_list_board() {
+# Echo the full board in the backend-NEUTRAL shape (#26 slice 5), paginating
+# internally:
+#   { total: <int>, items: [ { number, title, status, priority, category,
+#     createdAt, body, assignees:[login], comments:[body], labels:[name],
+#     blocking:<int>, blockedBy:<int> } ] }
+# status/priority/category are column DISPLAY NAMES (resolved identically by both
+# forges via config). The Forgejo backend synthesizes this same shape from labels
+# + native dep counts. `total` is the forge's item count (pagination integrity).
+_blacksmith_github_list_board() {
   local owner repo number after page board_total has_next nodes_file assembled rc
-  owner=$(harness_config_get '.github.owner')          || return 1
-  repo=$(harness_config_get '.github.repo')            || return 1
-  number=$(harness_config_get '.github.project_number') || return 1
+  owner=$(blacksmith_config_get '.github.owner')          || return 1
+  repo=$(blacksmith_config_get '.github.repo')            || return 1
+  number=$(blacksmith_config_get '.github.project_number') || return 1
   nodes_file=$(mktemp -t harness-board.XXXXXX) || return 1
   after="null"
   board_total=0
@@ -384,7 +437,7 @@ harness_list_board() {
       }
     ' -F owner="$owner" -F repo="$repo" -F number="$number" -F after="$after" 2>/dev/null) || {
       rm -f "$nodes_file"
-      _harness_die "board query failed (page after=$after)"
+      _blacksmith_die "board query failed (page after=$after)"
       return 1
     }
     printf '%s' "$page" | jq -c '.data.repository.projectV2.items.nodes[]' >> "$nodes_file"
@@ -395,7 +448,20 @@ harness_list_board() {
   done
   # Assemble, then clean up — but return the assembly's status, not rm's, so a
   # failed final jq is surfaced rather than masked by a successful cleanup.
-  assembled=$(jq -s '{data: {repository: {projectV2: {items: {totalCount: '"$board_total"', nodes: .}}}}}' "$nodes_file")
+  assembled=$(jq -s '{total: '"$board_total"', items: [ .[] | {
+      number:    .content.number,
+      title:     .content.title,
+      status:    (.status.name   // null),
+      priority:  (.priority.name // null),
+      category:  (.category.name // null),
+      createdAt: .content.createdAt,
+      body:      .content.body,
+      assignees: [ (.content.assignees.nodes // [])[] | .login ],
+      comments:  [ (.content.comments.nodes  // [])[] | .body  ],
+      labels:    [ (.content.labels.nodes    // [])[] | .name  ],
+      blocking:  (.content.blocking.totalCount  // 0),
+      blockedBy: (.content.blockedBy.totalCount // 0)
+    } ] }' "$nodes_file")
   rc=$?
   rm -f "$nodes_file"
   printf '%s\n' "$assembled"
@@ -405,18 +471,18 @@ harness_list_board() {
 # Echo the count of actionable issues on the board: those in the configured
 # actionable columns, plus In Progress issues labeled dispatch-incomplete
 # (resume path); loop-skip excluded. Mirrors board-dispatcher's candidate filter.
-harness_count_actionable() {
+_blacksmith_github_count_actionable() {
   local owner repo number actionable_json inprogress_name
-  owner=$(harness_config_get '.github.owner')          || return 1
-  repo=$(harness_config_get '.github.repo')            || return 1
-  number=$(harness_config_get '.github.project_number') || return 1
+  owner=$(blacksmith_config_get '.github.owner')          || return 1
+  repo=$(blacksmith_config_get '.github.repo')            || return 1
+  number=$(blacksmith_config_get '.github.project_number') || return 1
   actionable_json=$(
     while IFS= read -r slug; do
-      _harness_display_name_for "$slug"
-    done < <(harness_config_get_array '.workflow.actionable_columns') \
+      _blacksmith_display_name_for "$slug"
+    done < <(blacksmith_config_get_array '.workflow.actionable_columns') \
       | jq -R . | jq -sc .
   )
-  inprogress_name=$(_harness_display_name_for in_progress)
+  inprogress_name=$(_blacksmith_display_name_for in_progress)
   # shellcheck disable=SC2016
   gh api graphql -f query='
     query($owner: String!, $repo: String!, $number: Int!) {
@@ -454,9 +520,9 @@ harness_count_actionable() {
 
 # Archive a project item (the card leaves the board view; the issue itself —
 # state, comments, labels — is untouched). Reversible via unarchive.
-harness_archive_item() {
+_blacksmith_github_archive_item() {
   local item_id="$1" project_id
-  project_id=$(harness_project_id) || return 1
+  project_id=$(_blacksmith_github_project_id) || return 1
   # shellcheck disable=SC2016
   gh api graphql -f query='
     mutation($project: ID!, $item: ID!) {
@@ -468,34 +534,391 @@ harness_archive_item() {
 }
 
 # Echo the number of OPEN PRs whose head branch is $1 (0 on any error).
-harness_pr_open_count() {
+_blacksmith_github_pr_open_count() {
   local branch="$1" owner repo
-  owner=$(harness_config_get '.github.owner') || return 1
-  repo=$(harness_config_get '.github.repo')   || return 1
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
   gh pr list --repo "$owner/$repo" --head "$branch" --state open --json number --jq 'length' 2>/dev/null || echo "0"
 }
 
 # Ensure a label exists (idempotent; never fails the caller).
-harness_ensure_label() {
+_blacksmith_github_ensure_label() {
   local name="$1" description="$2" color="$3" owner repo
-  owner=$(harness_config_get '.github.owner') || return 1
-  repo=$(harness_config_get '.github.repo')   || return 1
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
   gh label create "$name" --repo "$owner/$repo" --description "$description" --color "$color" 2>/dev/null || true
 }
 
 # Add a label to an issue (never fails the caller).
-harness_issue_add_label() {
+_blacksmith_github_issue_add_label() {
   local issue="$1" label="$2" owner repo
-  owner=$(harness_config_get '.github.owner') || return 1
-  repo=$(harness_config_get '.github.repo')   || return 1
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
   gh issue edit "$issue" --repo "$owner/$repo" --add-label "$label" >/dev/null 2>&1 || true
 }
 
 # Post a comment on an issue (never fails the caller).
-harness_issue_comment() {
+_blacksmith_github_issue_comment() {
   local issue="$1" body="$2" owner repo
-  owner=$(harness_config_get '.github.owner') || return 1
-  repo=$(harness_config_get '.github.repo')   || return 1
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
   gh issue comment "$issue" --repo "$owner/$repo" --body "$body" >/dev/null 2>&1 || true
 }
 
+# --- Dependencies (native; #26 slice 2) ------------------------------------
+
+# Echo the blocked-by edges of an issue as a normalized JSON array:
+#   [ { number, state, title, repository, url } ]
+# Native GitHub issue-dependencies API (GA 2025-08-21) — NOT body-parse.
+_blacksmith_github_read_deps() {
+  local issue="$1" owner repo raw
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/issues/${issue}/dependencies/blocked_by?per_page=100" 2>/dev/null) \
+    || { _blacksmith_die "read_deps query failed for issue #$issue"; return 1; }
+  printf '%s' "$raw" | jq -c '[ .[] | {
+      number,
+      state,
+      title,
+      repository: (.repository.full_name // ((.repository_url // "") | sub("^https?://[^/]+/repos/"; ""))),
+      url: .html_url
+    } ]'
+}
+
+# --- Issue creation (native; #26 slice 3) ----------------------------------
+
+# Create an issue and add it to the configured Project v2 board. Echoes the
+# backend-neutral result: { number, url }. (The Project item id is GitHub-only,
+# so it is NOT in the neutral output — callers compose move/set by number.)
+#   create_issue <title> [body] [labels_csv]
+_blacksmith_github_create_issue() {
+  local title="$1" body="${2:-}" labels_csv="${3:-}"
+  local owner repo raw number node_id url project_id
+  local -a label_args=()
+  [[ -n "$title" ]] || { _blacksmith_die "create_issue: title required"; return 1; }
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  if [[ -n "$labels_csv" ]]; then
+    local l; local -a _labels=()
+    IFS=',' read -ra _labels <<< "$labels_csv"   # IFS scoped to this read only
+    for l in "${_labels[@]}"; do label_args+=( -f "labels[]=$l" ); done
+  fi
+  # NOTE: "${label_args[@]+...}" — empty-array-safe expansion; a bare
+  # "${label_args[@]}" on an empty array trips `set -u` on bash 3.2 (macOS).
+  raw=$(gh api "repos/${owner}/${repo}/issues" -f title="$title" -f body="$body" "${label_args[@]+"${label_args[@]}"}" 2>/dev/null) \
+    || { _blacksmith_die "create_issue failed (gh api)"; return 1; }
+  number=$(printf '%s' "$raw" | jq -er '.number')  || { _blacksmith_die "create_issue: no number in response"; return 1; }
+  node_id=$(printf '%s' "$raw" | jq -er '.node_id') || { _blacksmith_die "create_issue: no node_id in response"; return 1; }
+  url=$(printf '%s' "$raw" | jq -r '.html_url')
+  # Add the new issue to the configured Project v2 board (GraphQL, not preview REST).
+  project_id=$(_blacksmith_github_project_id) || return 1
+  # shellcheck disable=SC2016
+  gh api graphql -f query='
+    mutation($project: ID!, $content: ID!) {
+      addProjectV2ItemById(input: { projectId: $project, contentId: $content }) {
+        item { id }
+      }
+    }
+  ' -f project="$project_id" -f content="$node_id" >/dev/null 2>&1 \
+    || { _blacksmith_die "create_issue: created #$number but failed to add it to the board"; return 1; }
+  jq -nc --argjson n "$number" --arg u "$url" '{number: $n, url: $u}'
+}
+
+# --- Parent/child hierarchy (native sub-issues; #26 slice 4) ---------------
+
+# Link a child issue under a parent via native GitHub sub-issues. GOTCHA: the
+# sub-issues API takes the child's DATABASE id (int64), NOT its issue number, so
+# resolve the id first. Side-effect op; no stdout on success.
+#   link_parent <parent_number> <child_number>
+_blacksmith_github_link_parent() {
+  local parent="$1" child="$2" owner repo child_id
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  child_id=$(gh api "repos/${owner}/${repo}/issues/${child}" --jq '.id' 2>/dev/null) \
+    || { _blacksmith_die "link_parent: cannot resolve child #$child"; return 1; }
+  gh api "repos/${owner}/${repo}/issues/${parent}/sub_issues" -F sub_issue_id="$child_id" >/dev/null 2>&1 \
+    || { _blacksmith_die "link_parent: failed to link #$child under #$parent"; return 1; }
+}
+
+# Echo a parent's children as a normalized JSON array: [ { number, state, title, url } ].
+# Native sub-issues query (GA 2025-04-09) — not body-parse.
+#   list_children <parent_number>
+_blacksmith_github_list_children() {
+  local parent="$1" owner repo raw
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/issues/${parent}/sub_issues?per_page=100" 2>/dev/null) \
+    || { _blacksmith_die "list_children: query failed for #$parent"; return 1; }
+  printf '%s' "$raw" | jq -c '[ .[] | { number, state, title, url: .html_url } ]'
+}
+
+# ===========================================================================
+# FORGEJO BACKEND (_blacksmith_forgejo_*)
+# ---------------------------------------------------------------------------
+# Forgejo/Gitea has no Projects/board REST API, so columns/fields are exclusive
+# scoped labels; the issue IS the board item. Transport is raw REST over curl
+# with a PAT, base URL + owner/repo from the project config's `.forgejo` section,
+# token from $FORGEJO_TOKEN. See docs/research/2026-06-27-backend-capability.md.
+# ---------------------------------------------------------------------------
+
+# Authenticated Forgejo REST call. Keeps the PAT OFF argv — it is passed via a
+# curl config read from stdin, so the secret never appears in the process table
+# (`ps`). The JSON body (non-secret) stays on argv. Echoes the response body.
+#   _blacksmith_forgejo_curl <METHOD> <path> [json_body]
+_blacksmith_forgejo_curl() {
+  local method="$1" path="$2" body="${3:-}" base url
+  base=$(blacksmith_config_get '.forgejo.base_url') || return 1
+  url="${base%/}/api/v1${path}"
+  local -a args=(-fsS --config - -X "$method")
+  [[ -n "$body" ]] && args+=(-H "Content-Type: application/json" -d "$body")
+  args+=("$url")
+  curl "${args[@]}" <<CFG
+header = "Authorization: token ${FORGEJO_TOKEN:-}"
+CFG
+}
+
+# Echo the blocked-by edges of an issue as the SAME normalized JSON array the
+# GitHub backend returns. Native Forgejo issue-dependencies API (GA since v1.20):
+#   GET /api/v1/repos/{owner}/{repo}/issues/{index}/dependencies = the blockers.
+_blacksmith_forgejo_read_deps() {
+  local issue="$1" owner repo raw
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}/dependencies") \
+    || { _blacksmith_die "read_deps (forgejo) query failed for issue #$issue"; return 1; }
+  printf '%s' "$raw" | jq -c '[ .[] | {
+      number,
+      state,
+      title,
+      repository: (.repository.full_name // ""),
+      url: .html_url
+    } ]'
+}
+
+# On Forgejo the issue IS the board item, so the "item handle" callers pass around
+# is just the issue number. find_item echoes it back if the issue exists.
+_blacksmith_forgejo_find_item() {
+  local issue="$1" owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  if _blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}" >/dev/null 2>&1; then
+    printf '%s' "$issue"
+  fi
+}
+
+# The handle already IS the issue number.
+_blacksmith_forgejo_item_issue_number() { printf '%s' "$1"; }
+
+# Create an issue (+ initial status/backlog and any csv labels, by name). Echoes
+# the neutral { number, url }. Requires the scoped labels to exist on the repo
+# (provisioned in setup); a missing label is tolerated so the issue still lands.
+#   create_issue <title> [body] [labels_csv]
+_blacksmith_forgejo_create_issue() {
+  local title="$1" body="${2:-}" labels_csv="${3:-}" owner repo raw number url
+  [[ -n "$title" ]] || { _blacksmith_die "create_issue: title required"; return 1; }
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues" \
+        "$(jq -nc --arg t "$title" --arg b "$body" '{title:$t, body:$b}')") \
+    || { _blacksmith_die "create_issue (forgejo) failed"; return 1; }
+  number=$(jq -er '.number' <<<"$raw")  || { _blacksmith_die "create_issue: no number in response"; return 1; }
+  url=$(jq -r '.html_url' <<<"$raw")
+  local -a names=("status/backlog")
+  if [[ -n "$labels_csv" ]]; then
+    local -a extra=(); IFS=',' read -ra extra <<<"$labels_csv"
+    names+=("${extra[@]+"${extra[@]}"}")
+  fi
+  local labels_json; labels_json=$(printf '%s\n' "${names[@]}" | jq -R . | jq -sc '{labels: .}')
+  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${number}/labels" "$labels_json" >/dev/null 2>&1 || true
+  jq -nc --argjson n "$number" --arg u "$url" '{number: $n, url: $u}'
+}
+
+# Move an issue to a column by adding the exclusive status/<slug> label. The
+# exclusive flag auto-evicts the previous status/* label in one atomic call
+# (verified live). column may be a slug or display name; normalize to the slug.
+#   move_issue <issue_number> <column>
+_blacksmith_forgejo_move_issue() {
+  local issue="$1" column="$2" owner repo slug
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  slug=$(_blacksmith_normalize_slug "$column")
+  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${issue}/labels" \
+    "$(jq -nc --arg l "status/${slug}" '{labels: [$l]}')" >/dev/null \
+    || { _blacksmith_die "move_issue (forgejo) failed: #$issue -> status/$slug"; return 1; }
+}
+
+# Echo the column DISPLAY NAME for an issue (read off its status/* label), or
+# empty if uncolumned. Display name resolved via config, identical to GitHub.
+_blacksmith_forgejo_issue_status() {
+  local issue="$1" owner repo raw slug
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}") || return 1
+  slug=$(printf '%s' "$raw" | jq -r '
+    [ (.labels // [])[].name | select(startswith("status/")) ][0] // "" | sub("^status/"; "")')
+  [[ -n "$slug" ]] || return 0
+  _blacksmith_display_name_for "$slug"
+}
+
+# The handle is the issue number, so item_status == issue_status.
+_blacksmith_forgejo_item_status() { _blacksmith_forgejo_issue_status "$@"; }
+
+# Ensure a label exists (idempotent; never fails the caller). Forgejo wants a
+# '#'-prefixed hex color; the neutral callers pass bare hex (GitHub style).
+_blacksmith_forgejo_ensure_label() {
+  local name="$1" description="${2:-}" color="${3:-888888}" owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  [[ "$color" == \#* ]] || color="#$color"
+  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/labels" \
+    "$(jq -nc --arg n "$name" --arg d "$description" --arg c "$color" '{name:$n, description:$d, color:$c}')" \
+    >/dev/null 2>&1 || true
+}
+
+# Add a label to an issue by name (never fails the caller).
+_blacksmith_forgejo_issue_add_label() {
+  local issue="$1" label="$2" owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${issue}/labels" \
+    "$(jq -nc --arg l "$label" '{labels: [$l]}')" >/dev/null 2>&1 || true
+}
+
+# Post a comment on an issue (never fails the caller).
+_blacksmith_forgejo_issue_comment() {
+  local issue="$1" body="$2" owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${issue}/comments" \
+    "$(jq -nc --arg b "$body" '{body: $b}')" >/dev/null 2>&1 || true
+}
+
+# Echo the whole board in the backend-NEUTRAL shape (same as the GitHub backend):
+#   { total, items:[ {number,title,status,priority,category,createdAt,body,
+#                     assignees,comments,labels,blocking,blockedBy} ] }
+# Synthesized from labels: status/priority/category come from the scoped labels
+# (status mapped slug->display name, identical to GitHub); `labels` excludes the
+# scoped ones. blocking/blockedBy are 0 (Forgejo's issue list carries no dep count;
+# the dispatcher RANKS by them but never GATES, so this degrades ranking only).
+_blacksmith_forgejo_list_board() {
+  local owner repo raw smap
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues?type=issues&state=all&limit=100") || return 1
+  smap=$(for s in backlog research needs_input planning approval ready in_progress in_review "done"; do
+           printf '%s\t%s\n' "$s" "$(_blacksmith_display_name_for "$s")"
+         done | jq -R 'split("\t") | {key: .[0], value: .[1]}' | jq -sc 'from_entries')
+  printf '%s' "$raw" | jq -c --argjson smap "$smap" '
+    [ .[]
+      | ([ (.labels // [])[].name ]) as $labs
+      | ($labs | map(select(startswith("status/")))   | (.[0] // "") | sub("^status/";"")) as $sslug
+      | ($labs | map(select(startswith("priority/"))) | (.[0] // "") | sub("^priority/";"")) as $pslug
+      | ($labs | map(select(startswith("category/"))) | (.[0] // "") | sub("^category/";"")) as $cslug
+      | {
+          number,
+          title,
+          status:   (if $sslug=="" then null else ($smap[$sslug] // $sslug) end),
+          priority: (if $pslug=="" then null else $pslug end),
+          category: (if $cslug=="" then null else $cslug end),
+          createdAt: .created_at,
+          body: (.body // ""),
+          assignees: [ (.assignees // [])[].login ],
+          comments: [],
+          labels: [ $labs[] | select((startswith("status/") or startswith("priority/") or startswith("size/") or startswith("category/")) | not) ],
+          blocking: 0,
+          blockedBy: 0
+        }
+    ] | { total: length, items: . }'
+}
+
+# Echo the count of actionable issues (same filter as the GitHub backend); reuses
+# the neutral board so the logic lives in one place.
+_blacksmith_forgejo_count_actionable() {
+  local actionable_json inprogress
+  actionable_json=$(
+    while IFS= read -r slug; do _blacksmith_display_name_for "$slug"; done \
+      < <(blacksmith_config_get_array '.workflow.actionable_columns') | jq -R . | jq -sc .
+  )
+  inprogress=$(_blacksmith_display_name_for in_progress)
+  _blacksmith_forgejo_list_board | jq --argjson act "$actionable_json" --arg ip "$inprogress" '
+    [ .items[]
+      | select( (.status as $n | $act | index($n))
+                or (.status == $ip and (((.labels // []) | index("dispatch-incomplete")) != null)) )
+      | select(((.labels // []) | index("loop-skip")) | not)
+    ] | length'
+}
+
+# Archive = drop the issue off the board view by removing its status/* label
+# (the issue itself is untouched). Forgejo has no project card to archive; this is
+# the labels-as-columns analog. Never fails the caller.
+_blacksmith_forgejo_archive_item() {
+  local issue="$1" owner repo lid
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  lid=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}/labels" 2>/dev/null \
+        | jq -r '[.[] | select(.name | startswith("status/"))][0].id // empty')
+  [[ -n "$lid" ]] || return 0
+  _blacksmith_forgejo_curl DELETE "/repos/${owner}/${repo}/issues/${issue}/labels/${lid}" >/dev/null 2>&1 || true
+}
+
+# --- Parent/child hierarchy (body-fenced; the one forced body-parse case) ---
+# Forgejo has no native sub-issues, so containment is an adapter-owned, HTML-comment-
+# fenced checklist in the PARENT body (canonical), parsed ONLY inside the fence.
+
+# Rebuild the parent body with <child> added to the fenced child list. Pure text.
+_blacksmith_fj_children_rewrite() {
+  local body="$1" child="$2"
+  local open="<!-- blacksmith:children -->" close="<!-- /blacksmith:children -->"
+  local existing nums stripped fence n
+  existing=$(printf '%s' "$body" | awk -v o="$open" -v c="$close" \
+    '$0==o{inf=1;next} $0==c{inf=0;next} inf{print}' | grep -oE '#[0-9]+' | tr -d '#')
+  nums=$(printf '%s\n%s\n' "$existing" "$child" | grep -E '^[0-9]+$' | sort -n -u)
+  stripped=$(printf '%s' "$body" | awk -v o="$open" -v c="$close" \
+    '$0==o{skip=1} !skip{print} $0==c{skip=0}')
+  fence="$open"$'\n'
+  while IFS= read -r n; do [[ -n "$n" ]] && fence+="- [ ] #${n}"$'\n'; done <<< "$nums"
+  fence+="$close"
+  printf '%s\n\n%s\n' "$(printf '%s' "$stripped" | sed -e 's/[[:space:]]*$//')" "$fence"
+}
+
+# Echo the child numbers in the parent's fenced list, one per line.
+_blacksmith_fj_children_nums() {
+  local body="$1" open="<!-- blacksmith:children -->" close="<!-- /blacksmith:children -->"
+  printf '%s' "$body" | awk -v o="$open" -v c="$close" \
+    '$0==o{inf=1;next} $0==c{inf=0;next} inf{print}' | grep -oE '#[0-9]+' | tr -d '#' | sort -n -u
+}
+
+# Link a child under a parent: add it to the parent's fenced checklist (canonical)
+# and drop a parent marker in the child body. link_parent <parent> <child>
+_blacksmith_forgejo_link_parent() {
+  local parent="$1" child="$2" owner repo pbody nbody cbody
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  pbody=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${parent}" | jq -r '.body // ""') \
+    || { _blacksmith_die "link_parent: cannot read parent #$parent"; return 1; }
+  nbody=$(_blacksmith_fj_children_rewrite "$pbody" "$child")
+  _blacksmith_forgejo_curl PATCH "/repos/${owner}/${repo}/issues/${parent}" \
+    "$(jq -nc --arg b "$nbody" '{body: $b}')" >/dev/null \
+    || { _blacksmith_die "link_parent: failed to update parent #$parent"; return 1; }
+  cbody=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${child}" | jq -r '.body // ""')
+  if ! printf '%s' "$cbody" | grep -q 'blacksmith:parent'; then
+    _blacksmith_forgejo_curl PATCH "/repos/${owner}/${repo}/issues/${child}" \
+      "$(jq -nc --arg b "${cbody}"$'\n\n'"<!-- blacksmith:parent #${parent} -->" '{body: $b}')" >/dev/null 2>&1 || true
+  fi
+}
+
+# Echo a parent's children as the neutral array [ {number,state,title,url} ], read
+# from the fenced list (then one fetch per child for state/title/url).
+_blacksmith_forgejo_list_children() {
+  local parent="$1" owner repo pbody items n ci
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  pbody=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${parent}" | jq -r '.body // ""') || return 1
+  items="[]"
+  while IFS= read -r n; do
+    [[ -n "$n" ]] || continue
+    ci=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${n}" 2>/dev/null) || continue
+    items=$(printf '%s' "$ci" | jq -c --argjson acc "$items" '$acc + [{number, state, title, url: .html_url}]')
+  done <<< "$(_blacksmith_fj_children_nums "$pbody")"
+  printf '%s' "$items"
+}

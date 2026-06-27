@@ -1,0 +1,14 @@
+{
+  "name": "sluice",
+  "forge": "forgejo",
+  "forgejo": {
+    "base_url": "https://git.squirrlylabs.dev",
+    "owner": "squirrlylabs",
+    "repo": "sluice"
+  },
+  "workflow": {
+    "kind": "gen-eval-9col",
+    "column_names": {},
+    "actionable_columns": ["ready"]
+  }
+}

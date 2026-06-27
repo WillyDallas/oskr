@@ -34,7 +34,7 @@ grep -qF 'actionable_columns' "$DISPATCHER" \
 ! grep -qF 'Board constants for move-issue.sh' "$DISPATCHER" \
   || { echo "FAIL: UUID-leak footer block still present"; exit 1; }
 
-! grep -qF 'harness_column_name_for_slug' "$HARNESS_LIB" \
-  || { echo "FAIL: harness_column_name_for_slug must not be a public function"; exit 1; }
+! grep -qF 'blacksmith_column_name_for_slug' "$HARNESS_LIB" \
+  || { echo "FAIL: blacksmith_column_name_for_slug must not be a public function"; exit 1; }
 
 echo "test_board_dispatcher_syntax: PASS"

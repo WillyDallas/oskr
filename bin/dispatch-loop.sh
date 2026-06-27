@@ -9,7 +9,7 @@
 # or data can't be fetched, the loop skips and polls again after IDLE_INTERVAL.
 #
 # Actionable columns are read from harness-config.json (.workflow.actionable_columns)
-# and resolved to display names via _harness_display_name_for. The list of
+# and resolved to display names via _blacksmith_display_name_for. The list of
 # columns considered "actionable" is therefore project-configurable.
 #
 # Plugin-mode invocation:
@@ -62,12 +62,12 @@ source "$SCRIPT_DIR/harness-lib.sh"
 source "$SCRIPT_DIR/check-budget.sh"
 
 # Base branch from harness-config; default to main
-BASE_BRANCH=$(harness_config_get '.base_branch' 2>/dev/null || echo "main")
+BASE_BRANCH=$(blacksmith_config_get '.base_branch' 2>/dev/null || echo "main")
 [[ -n "$BASE_BRANCH" && "$BASE_BRANCH" != "null" ]] || BASE_BRANCH="main"
 
 has_actionable_work() {
   local count
-  count=$(harness_count_actionable)
+  count=$(blacksmith_count_actionable)
   [[ "$count" -gt 0 ]]
 }
 

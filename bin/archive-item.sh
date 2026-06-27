@@ -18,4 +18,4 @@ source "$SCRIPT_DIR/harness-lib.sh"
 
 ITEM_ID="${1:?usage: archive-item.sh <ITEM_ID>}"
 
-harness_archive_item "$ITEM_ID"
+blacksmith_archive_item "$ITEM_ID"

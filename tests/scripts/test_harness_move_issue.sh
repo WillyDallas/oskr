@@ -17,10 +17,10 @@ PATH="$SHIM_DIR:$PATH" \
   XDG_CACHE_HOME="$CACHE_DIR" \
   bash -c "
     source '$REPO_ROOT/bin/harness-lib.sh'
-    harness_move_issue 'PVTI_test' 'Planning' >/dev/null
+    blacksmith_move_issue 'PVTI_test' 'Planning' >/dev/null
   "
 
 grep -qF 'updateProjectV2ItemFieldValue' "$GH_SHIM_CALL_LOG" || { echo FAIL: mutation not invoked; exit 1; }
 grep -qF 'opt-planning' "$GH_SHIM_CALL_LOG" || { echo FAIL: planning option UUID not in mutation call; exit 1; }
 
-echo "test_harness_move_issue: PASS"
+echo "test_blacksmith_move_issue: PASS"

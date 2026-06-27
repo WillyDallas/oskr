@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# harness_list_board: paginates and assembles a GitHub-native board blob whose
-# totalCount and node count match the (single-page) fixture.
+# blacksmith_list_board: paginates and assembles the backend-NEUTRAL board shape
+# ({ total, items:[ {number,title,status,priority,category,labels,…} ] }) from the
+# GitHub-native pages, flattening content/*.name into flat fields.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -17,10 +18,26 @@ blob=$(PATH="$SHIM_DIR:$PATH" \
   GH_SHIM_FIXTURE="$REPO_ROOT/tests/scripts/fixtures/gh-project-discovery.json" \
   GH_SHIM_BOARD_FIXTURE="$REPO_ROOT/tests/scripts/fixtures/gh-board-items.json" \
   XDG_CACHE_HOME="$CACHE_DIR" \
-  bash -c "source '$REPO_ROOT/bin/harness-lib.sh'; harness_list_board")
+  bash -c "source '$REPO_ROOT/bin/harness-lib.sh'; blacksmith_list_board")
 
-total=$(echo "$blob" | jq '.data.repository.projectV2.items.totalCount')
-count=$(echo "$blob" | jq '.data.repository.projectV2.items.nodes | length')
-assert_eq "2" "$total" "list_board preserves totalCount" || exit 1
-assert_eq "2" "$count" "list_board assembled all nodes" || exit 1
-echo "test_harness_list_board: PASS"
+total=$(echo "$blob" | jq '.total')
+count=$(echo "$blob" | jq '.items | length')
+assert_eq "2" "$total" "list_board preserves total (pagination integrity)" || exit 1
+assert_eq "2" "$count" "list_board assembled all items" || exit 1
+
+# Flat neutral item shape — not the GitHub-native content/*.name nesting.
+assert_eq "10"      "$(echo "$blob" | jq '.items[0].number')"        "item carries flat number"   || exit 1
+assert_eq "A"       "$(echo "$blob" | jq -r '.items[0].title')"      "item carries flat title"    || exit 1
+assert_eq "Ready"   "$(echo "$blob" | jq -r '.items[0].status')"     "status flattened to a name" || exit 1
+assert_eq "P1"      "$(echo "$blob" | jq -r '.items[0].priority')"   "priority flattened"         || exit 1
+assert_eq "Feature" "$(echo "$blob" | jq -r '.items[0].category')"   "category flattened"         || exit 1
+assert_eq "null"    "$(echo "$blob" | jq '.items[1].priority')"      "null priority preserved"    || exit 1
+# Non-empty arrays/counts flatten correctly (not just the empty/zero case).
+assert_eq '["bug","backend"]' "$(echo "$blob" | jq -c '.items[0].labels')"   "labels -> name array"    || exit 1
+assert_eq "willy"     "$(echo "$blob" | jq -r '.items[0].assignees[0]')"      "assignees -> login array" || exit 1
+assert_eq "a comment" "$(echo "$blob" | jq -r '.items[0].comments[0]')"       "comments -> body array"   || exit 1
+assert_eq "3"         "$(echo "$blob" | jq '.items[0].blocking')"             "blocking is a flat count"  || exit 1
+assert_eq "1"         "$(echo "$blob" | jq '.items[0].blockedBy')"            "blockedBy is a flat count" || exit 1
+# No GitHub-native leakage in the neutral shape.
+assert_eq "null"    "$(echo "$blob" | jq '.data')"                   "no GitHub-native .data wrapper" || exit 1
+echo "test_blacksmith_list_board: PASS"

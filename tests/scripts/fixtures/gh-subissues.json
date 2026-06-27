@@ -1,0 +1,4 @@
+[
+  { "number": 7, "state": "open",   "title": "Child A", "html_url": "https://github.com/WillyDallas/oskr/issues/7" },
+  { "number": 8, "state": "closed", "title": "Child B", "html_url": "https://github.com/WillyDallas/oskr/issues/8" }
+]

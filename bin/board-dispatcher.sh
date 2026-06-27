@@ -34,27 +34,28 @@ source "$SCRIPT_DIR/harness-lib.sh"
 # backend functions, which fail loudly if config is missing.
 
 # Base branch from harness-config; default main. Used by the post-run completion check.
-BASE_BRANCH=$(harness_config_get '.base_branch' 2>/dev/null || echo "main")
+BASE_BRANCH=$(blacksmith_config_get '.base_branch' 2>/dev/null || echo "main")
 [[ -n "$BASE_BRANCH" && "$BASE_BRANCH" != "null" ]] || BASE_BRANCH="main"
 # In Progress display name (honors workflow.column_names aliases) — used by the
 # candidate filter (dropped-work recovery) and the completion check.
-INPROGRESS_NAME=$(_harness_display_name_for in_progress)
+INPROGRESS_NAME=$(_blacksmith_display_name_for in_progress)
 
 # Build the JSON array of actionable column display names from workflow.actionable_columns.
-# _harness_display_name_for honors any aliases in workflow.column_names; dispatcher
+# _blacksmith_display_name_for honors any aliases in workflow.column_names; dispatcher
 # is the only consumer of that private helper.
 ACTIONABLE_NAMES_JSON=$(
   while IFS= read -r slug; do
-    _harness_display_name_for "$slug"
-  done < <(harness_config_get_array '.workflow.actionable_columns') \
+    _blacksmith_display_name_for "$slug"
+  done < <(blacksmith_config_get_array '.workflow.actionable_columns') \
     | jq -R . | jq -s .
 ) || { log "ERROR: failed to resolve workflow.actionable_columns"; exit 1; }
 
 # --- Query the board ---
-# harness_list_board paginates and assembles the GitHub-native board blob.
-BOARD_STATE=$(harness_list_board) || { log "ERROR: failed to query board"; exit 1; }
-BOARD_TOTAL=$(echo "$BOARD_STATE" | jq '.data.repository.projectV2.items.totalCount')
-BOARD_RETURNED=$(echo "$BOARD_STATE" | jq '.data.repository.projectV2.items.nodes | length')
+# blacksmith_list_board paginates and assembles the backend-neutral board shape:
+#   { total, items: [ { number, title, status, priority, category, labels:[…], … } ] }
+BOARD_STATE=$(blacksmith_list_board) || { log "ERROR: failed to query board"; exit 1; }
+BOARD_TOTAL=$(echo "$BOARD_STATE" | jq '.total')
+BOARD_RETURNED=$(echo "$BOARD_STATE" | jq '.items | length')
 
 if [[ "$BOARD_TOTAL" -ne "$BOARD_RETURNED" ]]; then
   log "ERROR: pagination assembled ${BOARD_RETURNED} items but totalCount=${BOARD_TOTAL}"
@@ -71,26 +72,26 @@ fi
 #   3. Blocking count: descending (unblock the most work first)
 #   4. Age: oldest createdAt first (FIFO tiebreak, prevents starvation)
 RANKED_CANDIDATES=$(echo "$BOARD_STATE" | jq --argjson actionable "$ACTIONABLE_NAMES_JSON" --arg inprogress "$INPROGRESS_NAME" '
-  [.data.repository.projectV2.items.nodes[]
-    | select(.content != null)
+  [.items[]
+    | select(.number != null)
     | select(
-        (.status.name as $n | $actionable | index($n))
-        or (.status.name == $inprogress
-            and (((.content.labels.nodes // []) | map(.name) | index("dispatch-incomplete")) != null))
+        (.status as $n | $actionable | index($n))
+        or (.status == $inprogress
+            and (((.labels // []) | index("dispatch-incomplete")) != null))
       )
-    | select(((.content.labels.nodes // []) | map(.name) | index("loop-skip")) | not)
+    | select(((.labels // []) | index("loop-skip")) | not)
     | {
         rank: 0,
-        number: .content.number,
-        title: .content.title,
-        status: .status.name,
-        priority: (.priority.name // null),
-        blocking: .content.blocking.totalCount,
-        blockedBy: .content.blockedBy.totalCount,
-        createdAt: .content.createdAt,
-        _s: (if .status.name == $inprogress then 0 elif .status.name == "Ready" then 1 elif .status.name == "Planning" then 2 else 3 end),
-        _p: (if .priority.name == "High" then 1 elif .priority.name == "Medium" then 2 elif .priority.name == "Low" then 3 else 4 end),
-        _b: (- .content.blocking.totalCount)
+        number: .number,
+        title: .title,
+        status: .status,
+        priority: (.priority // null),
+        blocking: .blocking,
+        blockedBy: .blockedBy,
+        createdAt: .createdAt,
+        _s: (if .status == $inprogress then 0 elif .status == "Ready" then 1 elif .status == "Planning" then 2 else 3 end),
+        _p: (if .priority == "High" then 1 elif .priority == "Medium" then 2 elif .priority == "Low" then 3 else 4 end),
+        _b: (- .blocking)
       }
   ]
   | sort_by([._p, ._s, ._b, .createdAt])
@@ -157,16 +158,16 @@ verify_dispatch_completion() {
 
   while read -r n b; do
     [[ -z "$n" ]] && continue
-    status=$(harness_issue_status "$n")
+    status=$(blacksmith_issue_status "$n")
     [[ "$status" != "$INPROGRESS_NAME" ]] && continue
-    open_prs=$(harness_pr_open_count "$b")
+    open_prs=$(blacksmith_pr_open_count "$b")
     [[ "$open_prs" != "0" ]] && continue
 
     commits=$(git -C "$PROJECT_DIR" rev-list --count "$BASE_BRANCH..$b" 2>/dev/null || echo "?")
-    harness_ensure_label dispatch-incomplete \
+    blacksmith_ensure_label dispatch-incomplete \
       "A dispatch died mid-implementation; resume from the branch named in the issue comment" \
       D93F0B
-    harness_issue_add_label "$n" dispatch-incomplete
+    blacksmith_issue_add_label "$n" dispatch-incomplete
     comment_body="## Dispatch Incomplete
 
 A dispatch run ended without opening a PR. Partial state:
@@ -176,7 +177,7 @@ A dispatch run ended without opening a PR. Partial state:
 - **Detected**: $(date '+%Y-%m-%d %H:%M:%S')
 
 The next dispatch cycle will pick this issue up via the \`dispatch-incomplete\` label and resume from the branch (execute-plan resume mode). Remove the label to take over manually."
-    harness_issue_comment "$n" "$comment_body"
+    blacksmith_issue_comment "$n" "$comment_body"
     log "INCOMPLETE: issue #$n left In Progress with no PR — labeled dispatch-incomplete (branch=$b session=${session_id:-unknown})"
   done <<< "$issue_branches"
   return 0
