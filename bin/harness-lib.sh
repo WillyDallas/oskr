@@ -93,6 +93,10 @@ blacksmith_ensure_label()      { _blacksmith_dispatch ensure_label "$@"; }
 blacksmith_issue_add_label()   { _blacksmith_dispatch issue_add_label "$@"; }
 blacksmith_issue_comment()     { _blacksmith_dispatch issue_comment "$@"; }
 
+# #26 graph/write primitives (added per slice). Native-first on each forge;
+# normalized to a backend-neutral shape so the dispatcher never parses prose.
+blacksmith_read_deps()         { _blacksmith_dispatch read_deps "$@"; }
+
 # --- column-vocabulary helpers (forge-agnostic) ----------------------------
 
 _blacksmith_normalize_slug() {
@@ -541,4 +545,54 @@ _blacksmith_github_issue_comment() {
   owner=$(blacksmith_config_get '.github.owner') || return 1
   repo=$(blacksmith_config_get '.github.repo')   || return 1
   gh issue comment "$issue" --repo "$owner/$repo" --body "$body" >/dev/null 2>&1 || true
+}
+
+# --- Dependencies (native; #26 slice 2) ------------------------------------
+
+# Echo the blocked-by edges of an issue as a normalized JSON array:
+#   [ { number, state, title, repository, url } ]
+# Native GitHub issue-dependencies API (GA 2025-08-21) — NOT body-parse.
+_blacksmith_github_read_deps() {
+  local issue="$1" owner repo raw
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/issues/${issue}/dependencies/blocked_by?per_page=100" 2>/dev/null) \
+    || { _blacksmith_die "read_deps query failed for issue #$issue"; return 1; }
+  printf '%s' "$raw" | jq -c '[ .[] | {
+      number,
+      state,
+      title,
+      repository: (.repository.full_name // ((.repository_url // "") | sub("^https?://[^/]+/repos/"; ""))),
+      url: .html_url
+    } ]'
+}
+
+# ===========================================================================
+# FORGEJO BACKEND (_blacksmith_forgejo_*)
+# ---------------------------------------------------------------------------
+# Forgejo/Gitea has no Projects/board REST API, so columns/fields are exclusive
+# scoped labels; the issue IS the board item. Transport is raw REST over curl
+# with a PAT (Authorization: token <pat>), base URL + owner/repo from the
+# project config's `.forgejo` section, token from $FORGEJO_TOKEN. See
+# docs/research/2026-06-27-backend-capability.md.
+# ---------------------------------------------------------------------------
+
+# Echo the blocked-by edges of an issue as the SAME normalized JSON array the
+# GitHub backend returns. Native Forgejo issue-dependencies API (GA since v1.20):
+#   GET /api/v1/repos/{owner}/{repo}/issues/{index}/dependencies = the blockers.
+_blacksmith_forgejo_read_deps() {
+  local issue="$1" base owner repo raw
+  base=$(blacksmith_config_get '.forgejo.base_url') || return 1
+  owner=$(blacksmith_config_get '.forgejo.owner')   || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')     || return 1
+  raw=$(curl -fsS -H "Authorization: token ${FORGEJO_TOKEN:-}" \
+        "${base%/}/api/v1/repos/${owner}/${repo}/issues/${issue}/dependencies") \
+    || { _blacksmith_die "read_deps (forgejo) query failed for issue #$issue"; return 1; }
+  printf '%s' "$raw" | jq -c '[ .[] | {
+      number,
+      state,
+      title,
+      repository: (.repository.full_name // ""),
+      url: .html_url
+    } ]'
 }

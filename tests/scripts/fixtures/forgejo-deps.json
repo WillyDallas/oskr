@@ -1,0 +1,16 @@
+[
+  {
+    "number": 11,
+    "state": "open",
+    "title": "Set up schema",
+    "html_url": "https://git.squirrlylabs.dev/squirrlylabs/sluice/issues/11",
+    "repository": { "full_name": "squirrlylabs/sluice" }
+  },
+  {
+    "number": 12,
+    "state": "closed",
+    "title": "Migrate data",
+    "html_url": "https://git.squirrlylabs.dev/squirrlylabs/sluice/issues/12",
+    "repository": { "full_name": "squirrlylabs/sluice" }
+  }
+]
