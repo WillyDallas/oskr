@@ -603,7 +603,9 @@ _blacksmith_github_create_issue() {
     IFS=',' read -ra _labels <<< "$labels_csv"   # IFS scoped to this read only
     for l in "${_labels[@]}"; do label_args+=( -f "labels[]=$l" ); done
   fi
-  raw=$(gh api "repos/${owner}/${repo}/issues" -f title="$title" -f body="$body" "${label_args[@]}" 2>/dev/null) \
+  # NOTE: "${label_args[@]+...}" — empty-array-safe expansion; a bare
+  # "${label_args[@]}" on an empty array trips `set -u` on bash 3.2 (macOS).
+  raw=$(gh api "repos/${owner}/${repo}/issues" -f title="$title" -f body="$body" "${label_args[@]+"${label_args[@]}"}" 2>/dev/null) \
     || { _blacksmith_die "create_issue failed (gh api)"; return 1; }
   number=$(printf '%s' "$raw" | jq -er '.number')  || { _blacksmith_die "create_issue: no number in response"; return 1; }
   node_id=$(printf '%s' "$raw" | jq -er '.node_id') || { _blacksmith_die "create_issue: no node_id in response"; return 1; }
@@ -655,21 +657,34 @@ _blacksmith_github_list_children() {
 # ---------------------------------------------------------------------------
 # Forgejo/Gitea has no Projects/board REST API, so columns/fields are exclusive
 # scoped labels; the issue IS the board item. Transport is raw REST over curl
-# with a PAT (Authorization: token <pat>), base URL + owner/repo from the
-# project config's `.forgejo` section, token from $FORGEJO_TOKEN. See
-# docs/research/2026-06-27-backend-capability.md.
+# with a PAT, base URL + owner/repo from the project config's `.forgejo` section,
+# token from $FORGEJO_TOKEN. See docs/research/2026-06-27-backend-capability.md.
 # ---------------------------------------------------------------------------
+
+# Authenticated Forgejo REST call. Keeps the PAT OFF argv — it is passed via a
+# curl config read from stdin, so the secret never appears in the process table
+# (`ps`). The JSON body (non-secret) stays on argv. Echoes the response body.
+#   _blacksmith_forgejo_curl <METHOD> <path> [json_body]
+_blacksmith_forgejo_curl() {
+  local method="$1" path="$2" body="${3:-}" base url
+  base=$(blacksmith_config_get '.forgejo.base_url') || return 1
+  url="${base%/}/api/v1${path}"
+  local -a args=(-fsS --config - -X "$method")
+  [[ -n "$body" ]] && args+=(-H "Content-Type: application/json" -d "$body")
+  args+=("$url")
+  curl "${args[@]}" <<CFG
+header = "Authorization: token ${FORGEJO_TOKEN:-}"
+CFG
+}
 
 # Echo the blocked-by edges of an issue as the SAME normalized JSON array the
 # GitHub backend returns. Native Forgejo issue-dependencies API (GA since v1.20):
 #   GET /api/v1/repos/{owner}/{repo}/issues/{index}/dependencies = the blockers.
 _blacksmith_forgejo_read_deps() {
-  local issue="$1" base owner repo raw
-  base=$(blacksmith_config_get '.forgejo.base_url') || return 1
-  owner=$(blacksmith_config_get '.forgejo.owner')   || return 1
-  repo=$(blacksmith_config_get '.forgejo.repo')     || return 1
-  raw=$(curl -fsS -H "Authorization: token ${FORGEJO_TOKEN:-}" \
-        "${base%/}/api/v1/repos/${owner}/${repo}/issues/${issue}/dependencies") \
+  local issue="$1" owner repo raw
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}/dependencies") \
     || { _blacksmith_die "read_deps (forgejo) query failed for issue #$issue"; return 1; }
   printf '%s' "$raw" | jq -c '[ .[] | {
       number,

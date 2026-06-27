@@ -18,9 +18,10 @@ while IFS= read -r f; do
     grep -nE '\bgh (api|issue|pr|label|project)\b' "$f" >&2
     fail=1
   fi
-  if grep -nE '\bcurl\b.*api/v1' "$f" >/dev/null 2>&1; then
-    echo "FAIL: inline forge curl call in $(basename "$f"):" >&2
-    grep -nE '\bcurl\b.*api/v1' "$f" >&2
+  # File-level (not per-line): a multiline curl invocation — the natural form,
+  # where the URL is on a continuation line — would evade a single-line regex.
+  if grep -qE '\bcurl\b' "$f" && grep -qF 'api/v1' "$f"; then
+    echo "FAIL: forge curl call in $(basename "$f") (bare curl + api/v1 both present)" >&2
     fail=1
   fi
 done < <(find "$BIN" -name '*.sh' -type f)

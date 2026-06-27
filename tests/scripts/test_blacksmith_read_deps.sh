@@ -43,4 +43,10 @@ assert_eq "$gh_norm" "$fj_norm" "read_deps is neutral across forges" || exit 1
 # The Forgejo edge carries cross-repo target + state natively (no prose parse).
 assert_eq "squirrlylabs/sluice" "$(jq -r '.[0].repository' <<<"$fj_out")" "forgejo: repository on edge" || exit 1
 
+# Direction guard (the shim catch-all would otherwise absorb a wrong path): GitHub
+# must hit /dependencies/blocked_by (NOT the reverse /blocking); Forgejo must hit
+# the bare /dependencies. Pinned via the call log.
+grep -qF 'dependencies/blocked_by'        "$SHIM_DIR/calls.log" || { echo "FAIL: github read_deps must hit /dependencies/blocked_by, not the reverse" >&2; exit 1; }
+grep -qE 'curl .*/issues/5/dependencies$' "$SHIM_DIR/calls.log" || { echo "FAIL: forgejo read_deps must hit /dependencies" >&2; exit 1; }
+
 echo "test_blacksmith_read_deps: PASS"

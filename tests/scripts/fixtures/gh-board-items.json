@@ -12,9 +12,11 @@
               "priority": { "name": "P1" },
               "category": { "name": "Feature" },
               "content": {
-                "number": 10, "title": "A", "createdAt": "2026-01-01T00:00:00Z", "body": "",
-                "assignees": { "nodes": [] }, "comments": { "nodes": [] }, "labels": { "nodes": [] },
-                "blocking": { "totalCount": 0 }, "blockedBy": { "totalCount": 0 }
+                "number": 10, "title": "A", "createdAt": "2026-01-01T00:00:00Z", "body": "first body",
+                "assignees": { "nodes": [ { "login": "willy" } ] },
+                "comments": { "nodes": [ { "body": "a comment" } ] },
+                "labels": { "nodes": [ { "name": "bug" }, { "name": "backend" } ] },
+                "blocking": { "totalCount": 3 }, "blockedBy": { "totalCount": 1 }
               }
             },
             {

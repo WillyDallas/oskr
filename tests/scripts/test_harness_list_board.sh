@@ -30,9 +30,14 @@ assert_eq "10"      "$(echo "$blob" | jq '.items[0].number')"        "item carri
 assert_eq "A"       "$(echo "$blob" | jq -r '.items[0].title')"      "item carries flat title"    || exit 1
 assert_eq "Ready"   "$(echo "$blob" | jq -r '.items[0].status')"     "status flattened to a name" || exit 1
 assert_eq "P1"      "$(echo "$blob" | jq -r '.items[0].priority')"   "priority flattened"         || exit 1
+assert_eq "Feature" "$(echo "$blob" | jq -r '.items[0].category')"   "category flattened"         || exit 1
 assert_eq "null"    "$(echo "$blob" | jq '.items[1].priority')"      "null priority preserved"    || exit 1
-assert_eq "[]"      "$(echo "$blob" | jq -c '.items[0].labels')"     "labels flattened to names"  || exit 1
-assert_eq "0"       "$(echo "$blob" | jq '.items[0].blocking')"      "blocking is a flat count"   || exit 1
+# Non-empty arrays/counts flatten correctly (not just the empty/zero case).
+assert_eq '["bug","backend"]' "$(echo "$blob" | jq -c '.items[0].labels')"   "labels -> name array"    || exit 1
+assert_eq "willy"     "$(echo "$blob" | jq -r '.items[0].assignees[0]')"      "assignees -> login array" || exit 1
+assert_eq "a comment" "$(echo "$blob" | jq -r '.items[0].comments[0]')"       "comments -> body array"   || exit 1
+assert_eq "3"         "$(echo "$blob" | jq '.items[0].blocking')"             "blocking is a flat count"  || exit 1
+assert_eq "1"         "$(echo "$blob" | jq '.items[0].blockedBy')"            "blockedBy is a flat count" || exit 1
 # No GitHub-native leakage in the neutral shape.
 assert_eq "null"    "$(echo "$blob" | jq '.data')"                   "no GitHub-native .data wrapper" || exit 1
 echo "test_blacksmith_list_board: PASS"
