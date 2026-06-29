@@ -1,4 +1,10 @@
 
+# Secrets — never commit (the plugin is stateless; tokens live in the workspace)
+.env
+*.env
+*.key
+*.pem
+
 # macOS
 .DS_Store
 

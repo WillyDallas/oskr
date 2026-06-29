@@ -21,10 +21,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/harness-lib.sh"
 
-ITEM_ID=$(harness_find_item "$ISSUE_NUMBER")
+ITEM_ID=$(blacksmith_find_item "$ISSUE_NUMBER")
 
 if [[ -z "$ITEM_ID" ]]; then
-  PROJECT_NUMBER=$(harness_config_get '.github.project_number')
+  PROJECT_NUMBER=$(blacksmith_config_get '.github.project_number')
   echo "find-item: issue #$ISSUE_NUMBER is not on project #$PROJECT_NUMBER" >&2
   exit 1
 fi

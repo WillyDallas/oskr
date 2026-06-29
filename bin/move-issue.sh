@@ -22,7 +22,7 @@ if [[ "${HARNESS_TOKEN_REPORT:-on}" != "off" && -x "$TOKEN_REPORT_SCRIPT" ]]; th
   TRIGGER_SLUG="${HARNESS_TRIGGER_SLUG:-}"
 
   if [[ -z "$ISSUE_NUM" ]]; then
-    ISSUE_NUM=$(harness_item_issue_number "$ITEM_ID" 2>/dev/null || true)
+    ISSUE_NUM=$(blacksmith_item_issue_number "$ITEM_ID" 2>/dev/null || true)
   fi
 
   if [[ -z "$TRIGGER_SLUG" ]]; then
@@ -38,4 +38,4 @@ if [[ "${HARNESS_TOKEN_REPORT:-on}" != "off" && -x "$TOKEN_REPORT_SCRIPT" ]]; th
   fi
 fi
 
-harness_move_issue "$ITEM_ID" "$COLUMN"
+blacksmith_move_issue "$ITEM_ID" "$COLUMN"

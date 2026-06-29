@@ -8,14 +8,14 @@ source "$SCRIPT_DIR/harness-lib.sh"
 
 ITEM_ID="${1:?usage: round-trip-move.sh <ITEM_ID>}"
 
-current=$(harness_item_status "$ITEM_ID")
+current=$(blacksmith_item_status "$ITEM_ID")
 
 echo "round-trip: current column = $current"
 
 echo "round-trip: moving to Backlog"
-harness_move_issue "$ITEM_ID" "Backlog" >/dev/null
+blacksmith_move_issue "$ITEM_ID" "Backlog" >/dev/null
 
-after=$(harness_item_status "$ITEM_ID")
+after=$(blacksmith_item_status "$ITEM_ID")
 
 if [[ "$after" != "Backlog" ]]; then
   echo "round-trip: FAIL — expected Backlog, got $after"
@@ -23,6 +23,6 @@ if [[ "$after" != "Backlog" ]]; then
 fi
 
 echo "round-trip: moving back to $current"
-harness_move_issue "$ITEM_ID" "$current" >/dev/null
+blacksmith_move_issue "$ITEM_ID" "$current" >/dev/null
 
 echo "round-trip: PASS"

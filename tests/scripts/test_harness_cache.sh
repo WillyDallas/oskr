@@ -17,15 +17,15 @@ PATH="$SHIM_DIR:$PATH" \
   XDG_CACHE_HOME="$CACHE_DIR" \
   bash -c "
     source '$REPO_ROOT/bin/harness-lib.sh'
-    harness_project_id >/dev/null
-    harness_status_field_id >/dev/null
-    harness_field_id 'Priority' >/dev/null
+    _blacksmith_github_project_id >/dev/null
+    _blacksmith_github_status_field_id >/dev/null
+    _blacksmith_github_field_id 'Priority' >/dev/null
     [[ \$(wc -l < '$GH_SHIM_CALL_LOG') -eq 1 ]] || { echo FAIL: expected 1 gh call, got \$(wc -l < '$GH_SHIM_CALL_LOG'); exit 1; }
     test -f '$CACHE_DIR/oskr/1-WillyDallas-oskr.json' || { echo FAIL: cache file missing; exit 1; }
-    harness_cache_clear
+    _blacksmith_github_cache_clear
     test ! -f '$CACHE_DIR/oskr/1-WillyDallas-oskr.json' || { echo FAIL: cache_clear did not remove file; exit 1; }
-    harness_project_id >/dev/null
+    _blacksmith_github_project_id >/dev/null
     [[ \$(wc -l < '$GH_SHIM_CALL_LOG') -eq 2 ]] || { echo FAIL: expected 2 gh calls after clear, got \$(wc -l < '$GH_SHIM_CALL_LOG'); exit 1; }
   "
 
-echo "test_harness_cache: PASS"
+echo "test_blacksmith_cache: PASS"

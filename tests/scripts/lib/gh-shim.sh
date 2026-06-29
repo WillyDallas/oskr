@@ -11,7 +11,7 @@
 #
 # If `--jq <expr>` (or `-q <expr>`) is present, the chosen JSON is piped through
 # `jq -r <expr>`, mirroring real gh — so functions that rely on gh's own --jq
-# (e.g. harness_find_item) are testable. Functions that pipe to a separate `jq`
+# (e.g. blacksmith_find_item) are testable. Functions that pipe to a separate `jq`
 # (e.g. discovery) are unaffected since they pass no --jq.
 : "${GH_SHIM_FIXTURE:?GH_SHIM_FIXTURE not set}"
 : "${GH_SHIM_CALL_LOG:?GH_SHIM_CALL_LOG not set}"
@@ -41,6 +41,19 @@ emit() {
 if [[ "$args" == *updateProjectV2ItemFieldValue* ]]; then
   printf '%s' '{"data":{"updateProjectV2ItemFieldValue":{"projectV2Item":{"id":"PVTI_test"}}}}' | emit
   exit 0
+fi
+if [[ "$args" == *addProjectV2ItemById* ]]; then
+  printf '%s' '{"data":{"addProjectV2ItemById":{"item":{"id":"PVTI_created"}}}}' | emit
+  exit 0
+fi
+if [[ "$args" == *"title="* && -n "${GH_SHIM_CREATE_ISSUE_FIXTURE:-}" ]]; then
+  emit < "$GH_SHIM_CREATE_ISSUE_FIXTURE"; exit 0
+fi
+if [[ "$args" == *sub_issue_id=* ]]; then
+  printf '%s' '{"id":1,"number":1}' | emit; exit 0
+fi
+if [[ "$args" == *sub_issues* && -n "${GH_SHIM_SUBISSUES_FIXTURE:-}" ]]; then
+  emit < "$GH_SHIM_SUBISSUES_FIXTURE"; exit 0
 fi
 if [[ "$args" == *projectItems* && -n "${GH_SHIM_FIND_ITEM_FIXTURE:-}" ]]; then
   emit < "$GH_SHIM_FIND_ITEM_FIXTURE"; exit 0

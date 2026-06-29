@@ -85,7 +85,7 @@ Rule of thumb: **if it can go stale, it's the plan.** Grill and Plan-approval th
 
 ## Dependency on #26 (why this is blocked)
 
-The front-end (stages 3–4) and the autonomous queue need seam primitives that **do not exist yet**. What's present today (`harness_move_issue`, `harness_find_item`, `harness_list_board`, comment/label ops) covers *move/read*; the redesign needs **create + link + deps**, and every one must render on **both** GitHub (native sub-issues) and Forgejo (umbrella-body task-list + exclusive scoped labels):
+The front-end (stages 3–4) and the autonomous queue need seam primitives that **do not exist yet**. What's present today (`blacksmith_move_issue`, `blacksmith_find_item`, `blacksmith_list_board`, comment/label ops) covers *move/read*; the redesign needs **create + link + deps**, and every one must render on **both** GitHub (native sub-issues) and Forgejo (umbrella-body task-list + exclusive scoped labels):
 
 | Needed op | Status | GitHub render | Forgejo render |
 |---|---|---|---|
@@ -93,7 +93,7 @@ The front-end (stages 3–4) and the autonomous queue need seam primitives that 
 | `*_link_parent` (parent↔child) | **missing** | native sub-issue (`sub_issues` header) | umbrella checklist + `## Parent` + `area/*` |
 | `*_list_children` | **missing** | sub-issues query | parse umbrella task-list |
 | `*_read_deps` (normalized blocked-by) | **missing** | body-parse `## Blocked by` + `blocked` label | native issue deps + `blocked` label |
-| `*_move` / `*_find_item` / `*_list_board` | **exists** (`harness_*`) | ✓ | to-build under `_backend_forgejo_*` |
+| `*_move` / `*_find_item` / `*_list_board` | **exists** (`blacksmith_*`) | ✓ | to-build under `_blacksmith_forgejo_*` |
 
 **Canonical-store rule:** keep membership/deps/timeline/effort in the **issue body** (+ `blocked` / `size/*` labels) as the source of truth; mirror to native GitHub features only as a nicety. The dispatcher must **never rank or gate on a field only one backend has.**
 

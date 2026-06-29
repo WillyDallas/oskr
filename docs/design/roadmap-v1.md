@@ -23,9 +23,9 @@ Area 7 depends on Area 2's create/link primitives and gates the Area 5 DoD proof
    a `/oskr-track` skill. *(This roadmap + the model doc; mostly satisfied by standing up the board.)*
 2. **Backend adapter** — board ops behind one interface, GitHub + Forgejo interchangeable.
    - ✅ Step 0: seam consolidation (PR #24)
-   - Forgejo backend `_backend_forgejo_*` (exclusive scoped labels) — *research: live-instance smoke*
-   - Backend selection layer (`.backend` discriminator) + normalize `harness_list_board` shape
-   - `init` provisioning consolidation (`backend_provision_*`) — last inline-`gh` site
+   - Forgejo backend `_blacksmith_forgejo_*` (exclusive scoped labels) — *research: live-instance smoke*
+   - Backend selection layer (`forge` discriminator) + normalize `blacksmith_list_board` shape
+   - `init` provisioning consolidation (`blacksmith_*` create_repo/provision) — last inline-`gh` site
    - **Ingest write-ops** (`*_create_issue`, `*_link_parent`, `*_list_children`, `*_read_deps`) on both
      backends — the create/link/deps family Area 7's front-end writes through (move/read already exist)
    - *folds #9*
