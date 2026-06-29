@@ -99,6 +99,8 @@ blacksmith_read_deps()         { _blacksmith_dispatch read_deps "$@"; }
 blacksmith_create_issue()      { _blacksmith_dispatch create_issue "$@"; }
 blacksmith_link_parent()       { _blacksmith_dispatch link_parent "$@"; }
 blacksmith_list_children()     { _blacksmith_dispatch list_children "$@"; }
+blacksmith_set_milestone()     { _blacksmith_dispatch set_milestone "$@"; }
+blacksmith_add_dep()           { _blacksmith_dispatch add_dep "$@"; }
 
 # --- column-vocabulary helpers (forge-agnostic) ----------------------------
 
@@ -652,6 +654,39 @@ _blacksmith_github_list_children() {
   printf '%s' "$raw" | jq -c '[ .[] | { number, state, title, url: .html_url } ]'
 }
 
+# --- Milestone assignment (Epoch placement; pipeline redesign) --------------
+# Set an issue's milestone by TITLE — the milestone must already exist (creating
+# Epoch milestones is a one-time setup step; SETTING one per issue is not). Resolves
+# title -> number, then PATCHes the issue. Side-effect op; no stdout on success.
+#   set_milestone <issue> <milestone_title>
+_blacksmith_github_set_milestone() {
+  local issue="$1" title="$2" owner repo raw number
+  [[ -n "$title" ]] || { _blacksmith_die "set_milestone: milestone title required"; return 1; }
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/milestones?state=all&per_page=100" 2>/dev/null) \
+    || { _blacksmith_die "set_milestone: cannot list milestones"; return 1; }
+  number=$(printf '%s' "$raw" | jq -er --arg t "$title" 'map(select(.title==$t)) | .[0].number') \
+    || { _blacksmith_die "set_milestone: milestone '$title' not found (create it first)"; return 1; }
+  gh api "repos/${owner}/${repo}/issues/${issue}" -X PATCH -F milestone="$number" >/dev/null 2>&1 \
+    || { _blacksmith_die "set_milestone: failed to set #$issue -> '$title'"; return 1; }
+}
+
+# --- Dependency write (native blocked-by edge) ------------------------------
+# Record that <blocked> is BLOCKED BY <blocker> as a native typed edge (the read
+# side is blacksmith_read_deps). GOTCHA: the dependencies API takes the blocker's
+# DATABASE id (int64), NOT its issue number — resolve it first (like link_parent).
+# Side-effect op; no stdout on success. add_dep <blocked_number> <blocker_number>
+_blacksmith_github_add_dep() {
+  local blocked="$1" blocker="$2" owner repo blocker_id
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  blocker_id=$(gh api "repos/${owner}/${repo}/issues/${blocker}" --jq '.id' 2>/dev/null) \
+    || { _blacksmith_die "add_dep: cannot resolve blocker #$blocker"; return 1; }
+  gh api "repos/${owner}/${repo}/issues/${blocked}/dependencies/blocked_by" -F issue_id="$blocker_id" >/dev/null 2>&1 \
+    || { _blacksmith_die "add_dep: failed to record #$blocked blocked-by #$blocker"; return 1; }
+}
+
 # ===========================================================================
 # FORGEJO BACKEND (_blacksmith_forgejo_*)
 # ---------------------------------------------------------------------------
@@ -921,4 +956,34 @@ _blacksmith_forgejo_list_children() {
     items=$(printf '%s' "$ci" | jq -c --argjson acc "$items" '$acc + [{number, state, title, url: .html_url}]')
   done <<< "$(_blacksmith_fj_children_nums "$pbody")"
   printf '%s' "$items"
+}
+
+# --- Milestone assignment (Forgejo; native milestones, set by id) -----------
+# Set an issue's milestone by TITLE (must already exist). Resolves title -> id via
+# the milestones list, then PATCHes the issue. set_milestone <issue> <title>
+_blacksmith_forgejo_set_milestone() {
+  local issue="$1" title="$2" owner repo raw mid
+  [[ -n "$title" ]] || { _blacksmith_die "set_milestone: milestone title required"; return 1; }
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/milestones?state=all&limit=100") \
+    || { _blacksmith_die "set_milestone (forgejo): cannot list milestones"; return 1; }
+  mid=$(printf '%s' "$raw" | jq -er --arg t "$title" 'map(select(.title==$t)) | .[0].id') \
+    || { _blacksmith_die "set_milestone (forgejo): milestone '$title' not found (create it first)"; return 1; }
+  _blacksmith_forgejo_curl PATCH "/repos/${owner}/${repo}/issues/${issue}" \
+    "$(jq -nc --argjson m "$mid" '{milestone: $m}')" >/dev/null \
+    || { _blacksmith_die "set_milestone (forgejo): failed to set #$issue -> '$title'"; return 1; }
+}
+
+# --- Dependency write (Forgejo native blocked-by) ---------------------------
+# Record that <blocked> is BLOCKED BY <blocker>. Forgejo's dependency POST takes
+# IssueMeta{owner,repo,index} where index = the blocker's issue NUMBER (not a db
+# id). The read side is blacksmith_read_deps. add_dep <blocked> <blocker>
+_blacksmith_forgejo_add_dep() {
+  local blocked="$1" blocker="$2" owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${blocked}/dependencies" \
+    "$(jq -nc --arg o "$owner" --arg r "$repo" --argjson i "$blocker" '{owner:$o, repo:$r, index:$i}')" >/dev/null \
+    || { _blacksmith_die "add_dep (forgejo): failed to record #$blocked blocked-by #$blocker"; return 1; }
 }

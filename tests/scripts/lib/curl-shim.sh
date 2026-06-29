@@ -15,6 +15,10 @@ if [[ "$args" == *"/dependencies"* ]]; then
   [[ -n "${CURL_SHIM_DEPS_FIXTURE:-}" ]] && { cat "$CURL_SHIM_DEPS_FIXTURE"; exit 0; }
   echo '[]'; exit 0
 fi
+if [[ "$args" == *"/milestones"* ]]; then               # GET milestones (set_milestone title->id)
+  [[ -n "${CURL_SHIM_MILESTONES_FIXTURE:-}" ]] && { cat "$CURL_SHIM_MILESTONES_FIXTURE"; exit 0; }
+  echo '[]'; exit 0
+fi
 if [[ "$args" == */issues/*/labels* ]]; then            # add issue labels (move / create / add_label)
   [[ -n "${CURL_SHIM_ISSUE_LABELS_FIXTURE:-}" ]] && { cat "$CURL_SHIM_ISSUE_LABELS_FIXTURE"; exit 0; }
   echo '[{"name":"status/backlog"}]'; exit 0

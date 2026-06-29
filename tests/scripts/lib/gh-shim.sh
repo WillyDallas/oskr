@@ -61,4 +61,10 @@ fi
 if [[ "$args" == *pageInfo* && -n "${GH_SHIM_BOARD_FIXTURE:-}" ]]; then
   emit < "$GH_SHIM_BOARD_FIXTURE"; exit 0
 fi
+if [[ "$args" == */milestones* ]]; then                # GET milestones (set_milestone title->number)
+  emit < "${GH_SHIM_MILESTONES_FIXTURE:-/dev/null}"; exit 0
+fi
+if [[ "$args" == *dependencies/blocked_by* && "$args" == *issue_id=* ]]; then  # POST blocked-by edge (add_dep); GET read_deps has no issue_id= and falls through
+  printf '%s' '{}' | emit; exit 0
+fi
 emit < "$GH_SHIM_FIXTURE"
