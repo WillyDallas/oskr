@@ -2,7 +2,7 @@
 name: execute-plan
 description: Use when executing an approved implementation plan for an issue in the Ready column. Orchestrates the implementer/reviewer generator-evaluator loop per task, opens a PR when complete.
 argument-hint: "[issue-number]"
-allowed-tools: Bash(gh *) Bash(git *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(sync-development.sh*) Bash(sync-worktree.sh*) BashOutput KillShell Agent SendMessage
+allowed-tools: Bash(gh *) Bash(git *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(base-branch.sh*) Bash(sync-development.sh*) Bash(sync-worktree.sh*) BashOutput KillShell Agent SendMessage
 ---
 
 You are executing an approved implementation plan from the project board.
@@ -23,23 +23,28 @@ This skill frequently runs inside a headless (`claude -p`) dispatch session, whe
    - Find the plan comment (the one with "## Implementation Plan" and a link to `docs/plans/`)
    - Read the plan file from the linked path
 
-2. **Resolve the base branch.** Defaults to `main`. Override via the `OSKR_BASE_BRANCH` environment variable for projects using a `development → main` two-stage flow (or any other base).
+2. **Resolve the base branch — the task's Area branch.** Child PRs target their **Area branch** (the umbrella's recorded `area/<slug>` branch), not `main`. Resolve it with the blacksmith: it walks the task → parent umbrella → the recorded `oskr:area-branch` marker, falling back to the config base / `main` for solo / area-less tasks. `OSKR_BASE_BRANCH` still wins as an explicit override.
 
    ```bash
-   BASE_BRANCH="${OSKR_BASE_BRANCH:-main}"
+   BASE_BRANCH="${OSKR_BASE_BRANCH:-$(base-branch.sh <NUMBER>)}"
    ```
 
-3. **Create the working branch** — must start on the base branch with a clean working tree. The dispatch-loop enforces this, but when running standalone, verify first. After the pre-flight passes, sync the base with origin (fast-forward only, via the canonical script) so the feature branch is created from the latest base — prevents teammate/dispatcher pushes from causing rebases later.
+3. **Create the working branch off the Area branch** — clean tree, branched from the resolved base. Check out the resolved base first (it may already be the current Orca worktree branch, or a local-only Area branch cut off `main`).
    ```bash
-   # Pre-flight: must be on base branch with no tracked uncommitted changes
-   [[ "$(git rev-parse --abbrev-ref HEAD)" == "$BASE_BRANCH" ]] || { echo "ABORT: not on $BASE_BRANCH"; exit 1; }
    git diff --quiet && git diff --cached --quiet || { echo "ABORT: uncommitted tracked changes"; exit 1; }
 
-   # Sync the base with origin so the feature branch starts from the latest base
-   sync-development.sh execute-plan || { echo "ABORT: base branch is stale and could not auto-sync"; exit 1; }
+   # Check out the resolved base (the Area branch).
+   git checkout "$BASE_BRANCH" 2>/dev/null || { echo "ABORT: cannot check out base $BASE_BRANCH"; exit 1; }
+
+   # Sync with origin only when the base tracks an upstream (a pushed Area branch or
+   # main); skip cleanly for a local-only Area branch not yet pushed.
+   if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+     sync-development.sh execute-plan || { echo "ABORT: base $BASE_BRANCH is stale and could not auto-sync"; exit 1; }
+   fi
 
    git checkout -b feature/<NUMBER>-<short-slug>
    ```
+   *(Note: `sync-development.sh` / `sync-worktree.sh` were built for a single configured base; driving them against an arbitrary Area branch is a known refinement. The `@{u}` guard keeps a local-only Area branch from aborting the run.)*
 
    **Resume mode** — if a branch matching `feature/<NUMBER>-*` already exists (typically because the issue carries the `dispatch-incomplete` label from a prior dispatch that died mid-run), do NOT create a new branch or restart from task 1:
 
@@ -180,7 +185,7 @@ When all tasks pass review (and the optional gate is green):
    )"
    ```
 
-   Use `Closes #<NUMBER>` in the PR body only if your project's flow is a single PR to the production branch (the merge closes the issue and moves it to Done automatically). For two-stage `development → main` flows, use `Related: #<NUMBER>` instead — the issue closes when the second PR to `main` lands.
+   The PR targets the **Area branch** (a non-default branch), so `Closes #<NUMBER>` will NOT auto-close the issue on merge — GitHub/Forgejo only auto-close on the *default* branch. Use `Related: #<NUMBER>`; the child is closed **explicitly** when its PR lands on the Area branch (the child-close step, #46), and that close is what drives the umbrella to In Review. *(A solo / area-less task whose base resolved to `main` still uses `Closes #<NUMBER>` — it merges to the default branch.)*
 
 3. **Post summary to issue**:
    ```bash
