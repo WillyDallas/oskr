@@ -1,7 +1,7 @@
 {
   "name": "oskr",
-  "description": "Oskr — a config-driven Claude Code harness. Skills and agents drive a project's full delivery workflow (research → planning → implementation → review) against a GitHub Projects v2 board.",
-  "version": "0.2.10",
+  "description": "Oskr — a config-driven Claude Code harness. Skills and agents drive a project's full delivery workflow (research → planning → implementation → review) against a configurable board backend: GitHub Projects v2 or self-hosted Forgejo, selected per project.",
+  "version": "0.2.11",
   "author": {
     "name": "WillyDallas"
   },

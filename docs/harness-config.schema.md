@@ -2,16 +2,21 @@
 
 Each project consumed by Oskr has a `harness-config.json` at its root
 (or under `.claude/`, per the install layout). The harness reads this
-file to discover the GitHub board, paths, and per-project context.
+file to discover the configured forge (GitHub Projects v2 or Forgejo),
+paths, and per-project context.
 
 ```jsonc
 {
   "name": "wonderloom",
+  "forge": "github",                 // "github" (default) | "forgejo"
   "github": {
     "owner": "Wonderloom-books",
     "repo": "wonderloom",
     "project_number": 5
   },
+  // For forge "forgejo", replace the `github` block with a `forgejo` one
+  // (token comes from $FORGEJO_TOKEN, not this file):
+  //   "forgejo": { "base_url": "https://git.example.org", "owner": "org", "repo": "name" },
   "workflow": {
     "kind": "gen-eval-9col",
     "column_names": {
@@ -44,7 +49,9 @@ file to discover the GitHub board, paths, and per-project context.
 | Field | Purpose |
 |-------|---------|
 | `name` | Short slug for logs and dispatcher output |
-| `github.owner` / `github.repo` / `github.project_number` | Target board identifiers |
+| `forge` | Backend selector: `github` (default) or `forgejo` — see [design/blacksmith.md](design/blacksmith.md) |
+| `github.owner` / `github.repo` / `github.project_number` | GitHub board identifiers (when `forge` is `github`) |
+| `forgejo.base_url` / `forgejo.owner` / `forgejo.repo` | Forgejo instance + repo (when `forge` is `forgejo`); PAT from `$FORGEJO_TOKEN` |
 | `workflow.kind` | Only `gen-eval-9col` in v1 — see seed issue #10 for pluggable shapes |
 | `workflow.column_names` | Optional aliases when display names diverge from the canonical 9 |
 | `workflow.actionable_columns` | Columns the dispatcher should poll |

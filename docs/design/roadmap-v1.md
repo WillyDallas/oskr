@@ -21,13 +21,12 @@ Area 7 depends on Area 2's create/link primitives and gates the Area 5 DoD proof
 
 1. **Task-tracking model** — codify Epoch/Area/Task + backend mapping; document; (later) enforce via
    a `/oskr-track` skill. *(This roadmap + the model doc; mostly satisfied by standing up the board.)*
-2. **Backend adapter** — board ops behind one interface, GitHub + Forgejo interchangeable.
+2. **Backend adapter** — board ops behind one interface, GitHub + Forgejo interchangeable. ✅ **Done** (PR #41).
    - ✅ Step 0: seam consolidation (PR #24)
-   - Forgejo backend `_blacksmith_forgejo_*` (exclusive scoped labels) — *research: live-instance smoke*
-   - Backend selection layer (`forge` discriminator) + normalize `blacksmith_list_board` shape
-   - `init` provisioning consolidation (`blacksmith_*` create_repo/provision) — last inline-`gh` site
-   - **Ingest write-ops** (`*_create_issue`, `*_link_parent`, `*_list_children`, `*_read_deps`) on both
-     backends — the create/link/deps family Area 7's front-end writes through (move/read already exist)
+   - ✅ the **blacksmith**: `forge` dispatch + GitHub & Forgejo renderings of the full op set, live-validated
+   - ✅ ingest write-ops (`create_issue`/`link_parent`/`list_children`/`read_deps`) on both backends — unblocks Area 7
+   - ✅ `blacksmith_list_board` normalized to a neutral shape; packaged live-smoke acceptance gate
+   - Provisioning (repo + board UI) → manual `init` walkthrough, moved to #27. Reference: `docs/design/blacksmith.md`
    - *folds #9*
 3. **Workspace & setup** — depends on Area 2.
    - Two-tier config + relocate state into workspace `.oskr/` (registry / global config)
