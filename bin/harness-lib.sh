@@ -101,6 +101,7 @@ blacksmith_link_parent()       { _blacksmith_dispatch link_parent "$@"; }
 blacksmith_list_children()     { _blacksmith_dispatch list_children "$@"; }
 blacksmith_set_milestone()     { _blacksmith_dispatch set_milestone "$@"; }
 blacksmith_add_dep()           { _blacksmith_dispatch add_dep "$@"; }
+blacksmith_base_branch()       { _blacksmith_dispatch base_branch "$@"; }
 
 # --- column-vocabulary helpers (forge-agnostic) ----------------------------
 
@@ -687,6 +688,34 @@ _blacksmith_github_add_dep() {
     || { _blacksmith_die "add_dep: failed to record #$blocked blocked-by #$blocker"; return 1; }
 }
 
+# --- Base-branch resolution (per-Area; pipeline back-end) -------------------
+
+# Forge-agnostic: read the Area branch from the adapter-owned marker `scope` writes
+# (`<!-- oskr:area-branch <branch> -->`). NOT human prose — phrases like "the Area
+# branch: read the base ..." collide. Echoes the branch or nothing.
+_blacksmith_area_branch_from_body() {
+  printf '%s' "$1" | sed -nE 's@.*<!-- oskr:area-branch ([A-Za-z0-9._/-]+) -->.*@\1@p' | head -1
+}
+
+# Resolve the base branch a task's PR should target: the Area branch recorded on
+# its umbrella's PRD Placement (own body first, then the native parent), falling
+# back to config .base_branch (default main) for solo / area-less tasks. Every
+# execution site calls this — the one base seam. base_branch <issue#>
+_blacksmith_github_base_branch() {
+  local issue="$1" owner repo body ab parent default
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  default=$(blacksmith_config_get '.base_branch' 2>/dev/null || true); [[ -n "$default" && "$default" != "null" ]] || default="main"
+  body=$(gh api "repos/${owner}/${repo}/issues/${issue}" --jq '.body // ""' 2>/dev/null || true)
+  ab=$(_blacksmith_area_branch_from_body "$body"); [[ -n "$ab" ]] && { printf '%s' "$ab"; return 0; }
+  parent=$(gh api "repos/${owner}/${repo}/issues/${issue}/parent" --jq '.number' 2>/dev/null || true)
+  if [[ -n "$parent" && "$parent" != "null" ]]; then
+    body=$(gh api "repos/${owner}/${repo}/issues/${parent}" --jq '.body // ""' 2>/dev/null || true)
+    ab=$(_blacksmith_area_branch_from_body "$body"); [[ -n "$ab" ]] && { printf '%s' "$ab"; return 0; }
+  fi
+  printf '%s' "$default"
+}
+
 # ===========================================================================
 # FORGEJO BACKEND (_blacksmith_forgejo_*)
 # ---------------------------------------------------------------------------
@@ -986,4 +1015,23 @@ _blacksmith_forgejo_add_dep() {
   _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${blocked}/dependencies" \
     "$(jq -nc --arg o "$owner" --arg r "$repo" --argjson i "$blocker" '{owner:$o, repo:$r, index:$i}')" >/dev/null \
     || { _blacksmith_die "add_dep (forgejo): failed to record #$blocked blocked-by #$blocker"; return 1; }
+}
+
+# Resolve a task's base branch: the Area branch on its umbrella's PRD Placement
+# (own body, then the parent via the body-fenced `blacksmith:parent #N` marker),
+# else config .base_branch (default main). Mirrors the GitHub resolver's neutral
+# behavior. base_branch <issue#>
+_blacksmith_forgejo_base_branch() {
+  local issue="$1" owner repo body ab parent default
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  default=$(blacksmith_config_get '.base_branch' 2>/dev/null || true); [[ -n "$default" && "$default" != "null" ]] || default="main"
+  body=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}" 2>/dev/null | jq -r '.body // ""' || true)
+  ab=$(_blacksmith_area_branch_from_body "$body"); [[ -n "$ab" ]] && { printf '%s' "$ab"; return 0; }
+  parent=$(printf '%s' "$body" | sed -nE 's@.*blacksmith:parent #([0-9]+).*@\1@p' | head -1)
+  if [[ -n "$parent" ]]; then
+    body=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${parent}" 2>/dev/null | jq -r '.body // ""' || true)
+    ab=$(_blacksmith_area_branch_from_body "$body"); [[ -n "$ab" ]] && { printf '%s' "$ab"; return 0; }
+  fi
+  printf '%s' "$default"
 }
