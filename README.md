@@ -1,24 +1,28 @@
 # Oskr
 
-A general-purpose Claude Code harness for agentic project workflows.
+A config-driven Claude Code harness for agentic project delivery. Oskr (from
+Ratatoskr, the squirrel-courier of Yggdrasil) lets Claude Code skills and
+subagents drive a project's full workflow — research → planning →
+implementation → review — against a project board.
 
-Oskr (from Ratatoskr, the squirrel-courier of Yggdrasil) is a config-driven
-harness that lets Claude Code subagents drive a project's full delivery
-workflow — research, planning, implementation, review — against a GitHub
-Projects v2 board.
+## Backends
 
-## Status
+Board operations run behind one interface — **the blacksmith** — so the same
+workflow runs on **GitHub Projects v2** or **self-hosted Forgejo**, selected per
+project by a `forge` key in `harness-config.json`. See
+[docs/design/blacksmith.md](docs/design/blacksmith.md).
 
-Bootstrap. The harness currently lives inside the
-[Wonderloom](https://github.com/Wonderloom-books/wonderloom) project. Extraction
-to this repo is tracked in the seeded issues on the Oskr board.
+## Configuration
 
-## Architecture
+Each managed project has a `harness-config.json` at its root (or under
+`.claude/`). See [docs/harness-config.schema.md](docs/harness-config.schema.md).
 
-See `docs/harness-config.schema.md` for the per-project configuration schema.
-The canonical harness spec (board workflow, agents, skills, dispatcher)
-will be ported from Wonderloom's `docs/Architecture/harness.md` as part
-of the agent/skill extraction issues.
+## Layout
+
+- `skills/`, `agents/` — the Claude Code skills and subagents the harness ships.
+- `bin/` — the shell glue skills shell out to (the blacksmith adapter and the
+  board dispatcher live here).
+- `docs/design/`, `docs/research/` — architecture decisions and grounding.
 
 ## License
 
