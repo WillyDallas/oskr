@@ -185,7 +185,7 @@ When all tasks pass review (and the optional gate is green):
    )"
    ```
 
-   The PR targets the **Area branch** (a non-default branch), so `Closes #<NUMBER>` will NOT auto-close the issue on merge — GitHub/Forgejo only auto-close on the *default* branch. Use `Related: #<NUMBER>`; the child is closed **explicitly** when its PR lands on the Area branch (the child-close step, #46), and that close is what drives the umbrella to In Review. *(A solo / area-less task whose base resolved to `main` still uses `Closes #<NUMBER>` — it merges to the default branch.)*
+   The PR targets the **Area branch** (a non-default branch), so `Closes #<NUMBER>` will NOT auto-close the issue on merge — GitHub/Forgejo only auto-close on the *default* branch. Use `Related: #<NUMBER>`; the child **stays open through staging** and is retired later by `land-area` (#46), which opens the `Area→main` PR whose `Closes` directives close every child + the umbrella on the single human merge. *(A solo / area-less task whose base resolved to `main` instead uses `Closes #<NUMBER>` — it merges straight to the default branch.)*
 
 3. **Post summary to issue**:
    ```bash

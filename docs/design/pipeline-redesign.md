@@ -72,7 +72,7 @@ without further prompting once invoked.
 columns** with a *derived* coarse status (a reconcile pass cross-refs its children), but **skips
 Ready** (Ready is the single-task dispatch column) and is **never executed** (hard-excluded via
 `type/umbrella`). Flow: Scoping → Planning (PRD published + children linked) → Plan Approval (every child
-has a plan) → In Progress (first child reaches Ready) → In Review (**all** children closed) → Done
+has a plan) → In Progress (first child reaches Ready) → In Review (**all child PRs merged into the Area branch**, via `land-area`) → Done
 (human close). `/plan-approval <umbrella#>` is batch sugar (each child still in Plan Approval →
 Ready); `<child#>` moves one child. Neither ever puts the umbrella in Ready.
 
@@ -186,10 +186,11 @@ The back-end is **developer-driven** (v1) and **worktree-based**:
   if an Area gets unwieldy).
 - **The invariant refines:** "merge is never auto" means **never auto-merge to *main***. Staging
   merges into the Area branch may be light or (v2) automatic-on-green.
-- **`Closes #N` does NOT auto-close on merge to a non-default branch** (GitHub & Forgejo). Children
-  merge into the Area branch, so the flow must **explicitly close** each child on its staging merge.
-  That explicit close is the portable trigger for *umbrella → In Review* (all children
-  `state==closed`) — no PR-base detection needed (no op reads a PR's target anyway).
+- **`Closes #N` only auto-closes on the *default* branch.** Children merge into the Area branch
+  (non-default) under `Related:` and **stay open through staging**. `land-area` checks every child PR
+  has merged into the Area branch, rolls the umbrella to *In Review*, and opens the **Area→main** PR
+  whose `Closes #<child…> #<umbrella>` retires them all on the single human merge (main *is* default,
+  so `Closes` fires) — one merge closes the whole Area.
 - **Drift is managed** by merging main *into* the Area branch as main moves, so the final Area→main PR
   is cut from an up-to-date branch. `sync-worktree.sh` covers the worktree mechanics (extend for
   Area-branch teardown after the Area→main merge).
