@@ -5,6 +5,14 @@ Ratatoskr, the squirrel-courier of Yggdrasil) lets Claude Code skills and
 subagents drive a project's full workflow — research → planning →
 implementation → review — against a project board.
 
+## Pipeline
+
+Work flows across eight board states — **Backlog → Scoping → Planning → Plan
+Approval → Ready → In Progress → In Review → Done** — with one skill at each and
+three human gates (`scope`, `plan-approval`, the merge). The per-state runbook is
+[docs/board-flow.md](docs/board-flow.md); the design rationale is
+[docs/design/pipeline-redesign.md](docs/design/pipeline-redesign.md).
+
 ## Backends
 
 Board operations run behind one interface — **the blacksmith** — so the same
