@@ -54,6 +54,33 @@ blacksmith_config_get_array() {
   jq -er "${path}[]" "$cfg"
 }
 
+# --- workspace-root resolution ---------------------------------------------
+
+# Echo the workspace root: the nearest ancestor of $PWD containing a .oskr/
+# directory. $OSKR_WORKSPACE, if non-empty, overrides the walk (and must itself
+# contain .oskr/). Walks the filesystem, not git, so it crosses the gitignored
+# project-repo boundary (e.g. projects/oskr inside the workspace). Loud error
+# when neither resolves.
+blacksmith_workspace_dir() {
+  if [[ -n "${OSKR_WORKSPACE:-}" ]]; then
+    if [[ -d "$OSKR_WORKSPACE/.oskr" ]]; then
+      echo "$OSKR_WORKSPACE"; return 0
+    fi
+    _blacksmith_die "OSKR_WORKSPACE set but no .oskr/ found at: $OSKR_WORKSPACE"
+    return 1
+  fi
+  local dir="$PWD"
+  while :; do
+    if [[ -d "$dir/.oskr" ]]; then
+      echo "$dir"; return 0
+    fi
+    [[ "$dir" == "/" ]] && break
+    dir=$(dirname "$dir")
+  done
+  _blacksmith_die "not inside an oskr workspace; no ancestor .oskr/ found and OSKR_WORKSPACE unset"
+  return 1
+}
+
 # --- forge dispatch ---------------------------------------------------------
 
 # Echo the configured forge slug (default: github). Forge-agnostic config read;
