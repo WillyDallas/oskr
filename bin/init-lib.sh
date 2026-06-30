@@ -26,3 +26,43 @@ init_detect_mode() {
   if [[ "$remote_exists" == "yes" ]]; then echo "clone"; return 0; fi
   echo "create-new"
 }
+
+# init_emit_config <forge> <name> <tech_stack> <base_branch> <a> <b> <c>
+#   forge=github  : a=owner    b=repo  c=project_number
+#   forge=forgejo : a=base_url b=owner c=repo
+# Echoes a complete harness-config.json on stdout, carrying the `forge`
+# discriminator and EXACTLY the matching per-backend block. Pure jq; no network.
+# NOTE (slice boundary): workflow.kind / actionable_columns intentionally match the
+# current 9-col fixtures so this round-trips today; the 8-col reshape (T5) changes
+# these defaults HERE in one place. project_number defaults to 0 pre-provisioning.
+init_emit_config() {
+  local forge="${1:-github}" name="$2" tech="${3:-}" base="${4:-main}"
+  local a="${5:-}" b="${6:-}" c="${7:-}" backend
+  [[ -n "$forge" ]] || forge=github
+  case "$forge" in
+    github)
+      backend=$(jq -nc --arg o "$a" --arg r "$b" --argjson pn "${c:-0}" \
+        '{github: {owner: $o, repo: $r, project_number: $pn}}') || return 1 ;;
+    forgejo)
+      backend=$(jq -nc --arg u "$a" --arg o "$b" --arg r "$c" \
+        '{forgejo: {base_url: $u, owner: $o, repo: $r}}') || return 1 ;;
+    *)
+      _init_die "unknown forge '$forge' (expected github|forgejo)"; return 1 ;;
+  esac
+  jq -n \
+    --arg forge "$forge" --arg name "$name" --arg tech "$tech" --arg base "$base" \
+    --argjson backend "$backend" '
+      {name: $name, forge: $forge}
+      + $backend
+      + {
+          workflow: {
+            kind: "gen-eval-9col",
+            column_names: {},
+            actionable_columns: ["needs_input", "approval", "ready", "in_review"]
+          },
+          paths: {plans: "docs/plans", research: "docs/research", plan_archive: "docs/_local_archive"},
+          agent_context: {project_name: $name, tech_stack: $tech},
+          base_branch: $base
+        }
+    '
+}
