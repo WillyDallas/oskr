@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "oskr-marketplace",
+  "owner": {
+    "name": "WillyDallas"
+  },
+  "metadata": {
+    "description": "oskr — config-driven Claude Code harness for agentic project delivery"
+  },
+  "plugins": [
+    {
+      "name": "oskr",
+      "source": "./",
+      "description": "Config-driven Claude Code harness: skills + agents drive a project's full delivery workflow (research → planning → implementation → review) against GitHub Projects v2 or self-hosted Forgejo.",
+      "homepage": "https://github.com/WillyDallas/oskr",
+      "license": "MIT",
+      "author": {
+        "name": "WillyDallas"
+      }
+    }
+  ]
+}
