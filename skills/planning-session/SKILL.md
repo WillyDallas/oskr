@@ -1,27 +1,39 @@
 ---
 name: planning-session
-description: Use when producing or revising an implementation plan for an issue in the Planning column. Reads either a `## Q&A Complete` comment (from developer-input) or a `## Plan Rejected: Re-Plan` comment (from plan-review) and runs the planner→plan-reviewer loop. Does not run Q&A — `developer-input` owns that.
+description: Use when producing or revising an implementation plan for a task in the Planning column. Handles a freshly-decomposed task (a `## What`/`## AC` body with an `area/*` label) or a `## Plan Rejected: Re-Plan` rejection, and runs the planner→plan-reviewer loop. Does not scope or grill — `scope` (GATE 1) owns that.
 argument-hint: "[issue-number]"
 allowed-tools: Bash(gh *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(git add docs/plans/*) Bash(git commit -m*) Bash(git status) Bash(git diff*) Bash(git rev-parse*) Agent Skill
 ---
 
-You are running agent-only plan generation. A developer has already resolved any Q&A (via `developer-input`), OR rejected a prior plan with feedback (via `plan-review`). Your job is to spawn the planner/evaluator loop, post the plan, and move the issue to Approval. You do not ask clarifying questions — if you find none of the expected input comments, stop and surface the error.
+You are running agent-only plan generation. The task was already scoped and decomposed (via `scope`), OR a prior plan was rejected with feedback. Your job is to spawn the planner/evaluator loop, post the plan, and move the task to Plan Approval. You do not ask clarifying questions or re-scope — if the input contract is missing, stop and surface the error.
 
 ## Phase 0: Input Detection
 
-Fetch comments:
+Fetch the task — body, labels, comments:
 ```bash
-gh issue view <NUMBER> --json title,body,comments
+gh issue view <NUMBER> --json title,body,labels,comments
 ```
 
-Scan the most recent comments for one of these headers (most recent wins):
+Scan the most recent comments for a rejection header (most recent wins):
 
 - `## Plan Rejected: Re-Plan` → rejection re-entry. Capture the verbatim feedback below the header. Go to **Phase 0a: Re-Plan Triage**.
-- `## Plan Rejected: Re-Research` → routing error. This skill should not be running — `research-session` handles Re-Research. Surface the problem to the developer and stop.
-- `## Q&A Complete` → fresh plan. Capture the Q&A block. Go to **Phase 1: Fresh Plan Generator/Evaluator Loop**.
+- `## Plan Rejected: Re-Scope` → routing error. This skill should not be running — `scope` (GATE 1) handles Re-Scope. Surface the problem to the developer and stop.
 
-If none of these headers are present, stop and tell the developer:
-> This issue is missing the input contract (no `## Q&A Complete` or `## Plan Rejected: Re-Plan` comment was found). Run `developer-input <NUMBER>` first, or move the issue back to Needs Input.
+With no rejection comment, this is a **fresh plan** iff the task is a freshly-decomposed unit: the body carries both a `## What` and a `## AC` section **and** the issue has an `area/*` label (a real Area or the catch-all `area/loose`). If so, read the seams (**Phase 0b**), then go to **Phase 1: Fresh Plan Generator/Evaluator Loop**.
+
+If the task is neither a rejection re-entry nor a decomposed unit, stop and tell the developer:
+> This isn't a planning-ready task — its body has no `## What` + `## AC` with an `area/*` label, and there's no `## Plan Rejected: Re-Plan` comment. Run `/scope <NUMBER>` to scope and decompose it first.
+
+## Phase 0b: Read the umbrella's Named Seams
+
+The plan attaches its test assertions to the **seams the umbrella PRD already named** — the altitude contract: Scope owns the seams, the plan owns the assertions. Walk to the parent umbrella and read them:
+
+1. Resolve the parent umbrella number:
+   - **GitHub** (native sub-issue parent): `gh api "repos/{owner}/{repo}/issues/<NUMBER>/parent" --jq '.number'`.
+   - **Forgejo** (body marker): the `<!-- blacksmith:parent #N -->` line in the task body fetched above.
+2. Read the umbrella's `## Named Seams`: `gh issue view <PARENT> --json body`, then extract that section.
+
+**Done when:** the umbrella's Named Seams are in context, ready to pass to the planner. If the task has no parent (a solo `area/loose` task with no umbrella, so no PRD), note "no umbrella seams" and let the planner derive assertions from the `## AC` alone.
 
 ## Phase 0a: Re-Plan Triage (DoD Validity Check)
 
@@ -47,16 +59,16 @@ When DoD is still valid, update the existing plan file in place rather than crea
    git commit -m "revise plan for #<NUMBER> <short-slug>"
    ```
 5. Post a short update comment on the issue: `## Plan Revised (fast-path)` followed by a one-line diff summary (use `git diff HEAD~1 docs/plans/<PLAN_FILE>` to summarize).
-6. Move the issue back to Approval:
+6. Move the task back to Plan Approval:
    ```bash
    ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
-   move-issue.sh "$ITEM_ID" "Approval"
+   move-issue.sh "$ITEM_ID" "Plan Approval"
    ```
 7. Skip Phase 1 and Phase 2.
 
 ## Phase 1: Fresh Plan — Generator/Evaluator Loop
 
-The Q&A answers from the `## Q&A Complete` comment are input to a `planner` → `plan-reviewer` loop. You orchestrate; you do not write the plan yourself.
+The slim task contract (`## What`/`## AC`), the umbrella's **Named Seams** (Phase 0b), and any `## Research Digest` are the input to a `planner` → `plan-reviewer` loop. You orchestrate; you do not write the plan yourself.
 
 ### Step 1: Spawn planner for scoping round
 
@@ -65,10 +77,11 @@ Agent(
   subagent_type: "planner",
   prompt: "HARNESS_TOKEN_MARKER role=planner iteration=<ITER> issue=<NUMBER> kind=scoping
            Scoping round for issue #<NUMBER>.
-           Issue body: [issue body]
-           Research findings: [paste research comment]
-           Developer Q&A answers: [paste verbatim ## Q&A Complete block]
+           Task contract: [paste ## What + ## AC from the body]
+           Umbrella Named Seams: [paste from Phase 0b, or 'solo task — none']
+           Research digest: [paste ## Research Digest comment if present]
 
+           Each test AC attaches to one of the umbrella's Named Seams (the altitude contract).
            Produce a Definition of Done checklist for the plan you will write.
            Output per the Scoping Round format in your agent definition."
 )
@@ -100,7 +113,7 @@ Agent(
            Frozen DoD:
            [paste accepted DoD]
 
-           Research + Q&A context:
+           Task contract + Named Seams + research context:
            [paste as before]
 
            Write the plan file to docs/plans/YYYY-MM-DD-<feature>.md per the structure in your agent definition. Use the Skill tool to invoke context7 for any library API references."
@@ -158,7 +171,7 @@ As an audit trail, post a comment containing the frozen DoD, iteration count for
 
 ### Step 6: Commit the plan file
 
-The plan file is now accepted. Commit it to the base branch so plan-review reads from git rather than a dirty working tree, and so subsequent dispatches aren't blocked by uncommitted changes.
+The plan file is now accepted. Commit it to the base branch so plan-approval reads from git rather than a dirty working tree, and so subsequent dispatches aren't blocked by uncommitted changes.
 
 ```bash
 # Must be on the base branch — the dispatch-loop guarantees this, but verify
@@ -170,7 +183,7 @@ git commit -m "add plan for #<NUMBER> <short-slug>"
 
 The allowlist restricts `git add` to paths under `docs/plans/`, so any other modified files in the working tree are left alone.
 
-## Phase 2: Post Plan and Move to Approval
+## Phase 2: Post Plan and Move to Plan Approval
 
 1. Post the plan summary comment:
    ```bash
@@ -190,13 +203,13 @@ The allowlist restricts `git add` to paths under `docs/plans/`, so any other mod
    )"
    ```
 
-2. Move the issue to Approval:
+2. Move the task to Plan Approval:
    ```bash
    ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
-   move-issue.sh "$ITEM_ID" "Approval"
+   move-issue.sh "$ITEM_ID" "Plan Approval"
    ```
 
-3. **Stop.** Do not invoke `plan-review` or `execute-plan`. If a developer ran this interactively, tell them: "Plan is in Approval. Run `plan-review <NUMBER>` when you're ready to review it." If the skill ran autonomously via the dispatcher, that's the end of this cycle.
+3. **Stop.** Do not invoke `plan-approval` or `execute-plan`. If a developer ran this interactively, tell them: "Plan is in Plan Approval. Run `plan-approval <NUMBER>` when you're ready to review it." If the skill ran autonomously via the dispatcher, that's the end of this cycle.
 
 ## Optional: Project test-tier reference
 
@@ -204,8 +217,8 @@ If the consumer project ships a `.claude/skills/planning-session/test-reference.
 
 ## Key Rules
 
-- **This skill does not run Q&A.** If the input contract is missing, stop and redirect to `developer-input`.
+- **This skill does not scope or grill.** If the input contract is missing, stop and redirect to `scope`.
 - One issue per invocation.
 - Fresh subagents per iteration (no shared context across iterations). The first execution-round review fans out the rubric panel (Step 4a) plus one synthesizer (Step 4b); the scoping review and later-iteration re-reviews are single plan-reviewers. Only the reviewer fans out — the planner stays single (parallel plan drafts break the single-canonical-file contract).
 - DoD is frozen after scoping — execution round cannot amend the contract.
-- Never chain into `plan-review` or `execute-plan` — those are separate human-gated skills.
+- Never chain into `plan-approval` or `execute-plan` — those are separate human-gated skills.
