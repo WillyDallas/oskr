@@ -1,0 +1,5 @@
+{
+  "base_branch": "trunk",
+  "github": { "owner": "GlobalOwner" },
+  "forgejo": { "base_url": "https://git.squirrlylabs.dev" }
+}

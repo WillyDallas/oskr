@@ -43,8 +43,22 @@ blacksmith_config_path() {
 }
 
 blacksmith_config_get() {
-  local path="$1" cfg
+  local path="$1" cfg out gcfg
   cfg=$(blacksmith_config_path) || return 1
+  # Project tier first. A resolving key returns exactly what jq emits today;
+  # the global fallback is strictly additive (present-key reads unchanged).
+  if out=$(jq -er "$path" "$cfg" 2>/dev/null); then
+    printf '%s\n' "$out"
+    return 0
+  fi
+  # Absent from the project config: consult the global tier if one resolves.
+  if gcfg=$(blacksmith_global_config_path 2>/dev/null); then
+    if out=$(jq -er "$path" "$gcfg" 2>/dev/null); then
+      printf '%s\n' "$out"
+      return 0
+    fi
+  fi
+  # Neither tier resolved the key: reproduce today's failure (jq error -> stderr).
   jq -er "$path" "$cfg"
 }
 
@@ -52,6 +66,44 @@ blacksmith_config_get_array() {
   local path="$1" cfg
   cfg=$(blacksmith_config_path) || return 1
   jq -er "${path}[]" "$cfg"
+}
+
+# --- workspace-root resolution ---------------------------------------------
+
+# Echo the workspace root: the nearest ancestor of $PWD containing a .oskr/
+# directory. $OSKR_WORKSPACE, if non-empty, overrides the walk (and must itself
+# contain .oskr/). Walks the filesystem, not git, so it crosses the gitignored
+# project-repo boundary (e.g. projects/oskr inside the workspace). Loud error
+# when neither resolves.
+blacksmith_workspace_dir() {
+  if [[ -n "${OSKR_WORKSPACE:-}" ]]; then
+    if [[ -d "$OSKR_WORKSPACE/.oskr" ]]; then
+      echo "$OSKR_WORKSPACE"; return 0
+    fi
+    _blacksmith_die "OSKR_WORKSPACE set but no .oskr/ found at: $OSKR_WORKSPACE"
+    return 1
+  fi
+  local dir="$PWD"
+  while :; do
+    if [[ -d "$dir/.oskr" ]]; then
+      echo "$dir"; return 0
+    fi
+    [[ "$dir" == "/" ]] && break
+    dir=$(dirname "$dir")
+  done
+  _blacksmith_die "not inside an oskr workspace; no ancestor .oskr/ found and OSKR_WORKSPACE unset"
+  return 1
+}
+
+# Echo the global config file (<workspace>/.oskr/config.json), or fail quietly
+# (return 1, no stderr) when no workspace or no global config exists. Quiet by
+# design: it is a fallback probe, not a primary resolver.
+blacksmith_global_config_path() {
+  local ws gcfg
+  ws=$(blacksmith_workspace_dir 2>/dev/null) || return 1
+  gcfg="$ws/.oskr/config.json"
+  [[ -f "$gcfg" ]] || return 1
+  echo "$gcfg"
 }
 
 # --- forge dispatch ---------------------------------------------------------
