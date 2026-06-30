@@ -53,3 +53,37 @@ oskr_doctor_path_copies() {
   n=$(oskr_doctor_oskr_bins "$1" "$2" | grep -c . || true)
   printf '%s' "$n"
 }
+
+# Human-readable report. Reads $CLAUDE_PLUGIN_ROOT (active copy) + $PATH (collision).
+# Returns 0 normally, 1 on a double-enable collision.
+main() {
+  local root="${CLAUDE_PLUGIN_ROOT:-}" marker="harness-lib.sh"
+  local cache kind copies
+  cache="$(oskr_doctor_cache_root)"
+
+  echo "oskr doctor"
+  if [[ -z "$root" ]]; then
+    echo "  active copy:  unknown (CLAUDE_PLUGIN_ROOT unset — not running under an enabled plugin?)"
+  else
+    kind="$(oskr_doctor_classify "$root" "$cache")"
+    echo "  active copy:  $kind ($root)"
+  fi
+
+  copies="$(oskr_doctor_path_copies "${PATH:-}" "$marker")"
+  echo "  oskr bin dirs on PATH: $copies"
+  oskr_doctor_oskr_bins "${PATH:-}" "$marker" | sed 's/^/    - /'
+
+  if (( copies > 1 )); then
+    {
+      echo "  WARNING: double-enable collision — $copies oskr copies are enabled at once."
+      echo "  Duplicate /oskr:* skills and an ambiguous bin/ PATH precedence will result."
+      echo "  Keep the installed/pinned plugin as the default; use --plugin-dir only to work ON oskr."
+    } >&2
+    return 1
+  fi
+  return 0
+}
+
+if [[ "${BASH_SOURCE[0]:-}" = "$0" ]]; then
+  main "$@"
+fi

@@ -32,4 +32,34 @@ assert_eq "1" "$out" "single copy count"
 out=$(source "$DOCTOR" && oskr_doctor_path_copies "$DEV:$INSTALLED:/usr/bin" "harness-lib.sh")
 assert_eq "2" "$out" "double-enable count"
 
+# Test 5: main warns + exits non-zero on a double-enable collision (PATH has both copies).
+collision_out=$(
+  CLAUDE_PLUGIN_ROOT="$TMP/projects/oskr" \
+  OSKR_DOCTOR_CACHE_ROOT="$CACHE" \
+  PATH="$DEV:$INSTALLED:/usr/bin:/bin" \
+  bash "$DOCTOR" 2>&1
+) && { echo "FAIL: doctor should exit non-zero on collision" >&2; exit 1; } || true
+grep -qF "double-enable collision" <<<"$collision_out" \
+  || { echo "FAIL: collision message missing" >&2; echo "$collision_out" >&2; exit 1; }
+
+# Test 6: main reports the active DEV copy + exits 0 when only one copy is enabled.
+single_out=$(
+  CLAUDE_PLUGIN_ROOT="$TMP/projects/oskr" \
+  OSKR_DOCTOR_CACHE_ROOT="$CACHE" \
+  PATH="$DEV:/usr/bin:/bin" \
+  bash "$DOCTOR" 2>&1
+)
+grep -qF "active copy:  dev" <<<"$single_out" \
+  || { echo "FAIL: expected dev active-copy line" >&2; echo "$single_out" >&2; exit 1; }
+
+# Test 7: main reports the active INSTALLED copy.
+inst_out=$(
+  CLAUDE_PLUGIN_ROOT="$CACHE/oskr/0.3.5" \
+  OSKR_DOCTOR_CACHE_ROOT="$CACHE" \
+  PATH="$INSTALLED:/usr/bin:/bin" \
+  bash "$DOCTOR" 2>&1
+)
+grep -qF "active copy:  installed" <<<"$inst_out" \
+  || { echo "FAIL: expected installed active-copy line" >&2; echo "$inst_out" >&2; exit 1; }
+
 echo "test_doctor: PASS"
