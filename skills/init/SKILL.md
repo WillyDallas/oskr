@@ -58,6 +58,8 @@ Ask one question at a time. Pre-fill defaults from Phase 0 where possible.
 
 6. **Requirements doc path** — optional. Ask: "Path to a markdown requirements doc to ingest as seed issues? (leave blank to skip)"
 
+7. **Backend (forge)** — `github` (default) or `forgejo`. Ask: "Backend? github (default) or forgejo". Set `FORGE` accordingly (default `github`). For `forgejo`, also gather `BASE_URL` (e.g. `https://git.example.org`) and confirm `$FORGEJO_TOKEN` is set in the workspace `.env`.
+
 Confirm the full input set back to the developer before proceeding:
 > Setup plan:
 > - Project: `<name>` at `<cwd>`
@@ -281,50 +283,24 @@ gh api graphql -f query='
 
 ## Phase 5: Write harness-config.json
 
-Build the config based on inputs and Phase 4 outcomes.
+Emit the config through the init writer — it stamps the `forge` discriminator and
+the matching backend block. (`init-lib.sh` was sourced in Phase 0.)
 
 ```bash
-# workflow.column_names depends on Path 1 vs Path 2 — only Path 2 needs an alias for the status field name
-if [[ "$STATUS_PATH_TAKEN" == "phase" ]]; then
-  WORKFLOW_BLOCK='"workflow": {
-    "kind": "gen-eval-9col",
-    "column_names": {},
-    "status_field_name": "Phase",
-    "actionable_columns": ["research", "planning", "ready"]
-  }'
+if [[ "${FORGE:-github}" == "forgejo" ]]; then
+  init_emit_config forgejo "$NAME" "$TECH_STACK" "$BASE_BRANCH" \
+    "$BASE_URL" "$OWNER" "$REPO" > harness-config.json
 else
-  WORKFLOW_BLOCK='"workflow": {
-    "kind": "gen-eval-9col",
-    "column_names": {},
-    "actionable_columns": ["research", "planning", "ready"]
-  }'
+  init_emit_config github "$NAME" "$TECH_STACK" "$BASE_BRANCH" \
+    "$OWNER" "$REPO" "${PROJECT_NUMBER:-0}" > harness-config.json
 fi
 
-cat > harness-config.json <<EOF
-{
-  "name": "$NAME",
-  "github": {
-    "owner": "$OWNER",
-    "repo": "$REPO",
-    "project_number": $PROJECT_NUMBER
-  },
-  $WORKFLOW_BLOCK,
-  "paths": {
-    "plans": "docs/plans",
-    "research": "docs/research",
-    "plan_archive": "docs/_local_archive"
-  },
-  "agent_context": {
-    "project_name": "$NAME",
-    "tech_stack": "$TECH_STACK"
-  },
-  "base_branch": "$BASE_BRANCH"
-}
-EOF
-
-# Validate
 jq . harness-config.json > /dev/null || { echo "ABORT: malformed harness-config.json"; exit 1; }
 ```
+
+For `create-new`/`clone`, `PROJECT_NUMBER` is the board number captured in Phase 4
+(provisioning slice); if Phase 4 has not run yet it defaults to `0` and the
+provisioning slice backfills it.
 
 ## Phase 6: Register in the oskr project registry
 
