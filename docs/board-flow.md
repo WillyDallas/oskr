@@ -71,16 +71,14 @@ to `docs/_local_archive/`.
   work. Used during **In Progress**.
 - **`writing-skills`** — meta: use when authoring or editing an oskr skill.
 
-## Legacy — not in the redesigned flow
+## Known drift
 
-These predate the column reshape and reference retired columns; they are not part of the
-eight-state flow above and are pending reconciliation:
+The live board and the delivery skills above use the eight-state model, but the
+**provisioning/config layer** still encodes the old nine-column `gen-eval-9col` model:
+`harness-config.json` declares a `needs_input` actionable column, `init` provisions the
+nine-column board, and the parked autonomous dispatcher routes via retired columns.
+Tracked in [#52](https://github.com/WillyDallas/oskr/issues/52).
 
-- **`research-session`** — references a `Research` / `Backlog` column and a `Needs Input`
-  hand-off; superseded by `scope`'s inline `research` ability.
-- **`developer-input`** — operates on a `Needs Input` column that no longer exists on the
-  board.
-
-> **Known drift (2026-06-30):** `harness-config.json` still declares `gen-eval-9col` with
-> a `needs_input` actionable column, though the live board is the 8-state model above.
-> Config and the two legacy skills want a follow-up reconcile.
+> The superseded intake skills `research-session` and `developer-input` were removed —
+> their function now lives in `research` (the agent loop), `grill` (the Q&A), and `scope`
+> (the gate).
