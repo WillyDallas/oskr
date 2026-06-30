@@ -43,13 +43,16 @@ Area 7 depends on Area 2's create/link primitives and gates the Area 5 DoD proof
    learning workspace); independent of the backend adapter (teach never touches a board).
    - Adopt `teach` as the `learning` domain in its own managed workspace (no board/CWD collision)
    - Produce a first lesson end-to-end; extract its techniques (learning-records-as-ADRs, FORMAT compression)
-7. **Pipeline redesign** — replace the current per-issue intake with the **ability/stage/gate** pipeline
-   (grill→PRD/Area→decompose→per-task plan→execute→merge→cleanup). Depends on Area 2's create/link/deps
-   primitives; gates the Area 5 DoD proof. *Design: `docs/design/pipeline-redesign.md`. folds #32.*
-   - New front-end skills: `ground`, `grill-scope`, `shape-prd`, `decompose`
+7. **Pipeline redesign** — ✅ **developer-driven pipeline shipped** (front-end #32 + back-end Area #43,
+   merged via #50); the autonomous queue is **parked to v2**. Replaces the per-issue intake with the
+   **ability/stage/gate** pipeline (grill→PRD/Area→decompose→per-task plan→execute→merge→cleanup).
+   Depended on Area 2's create/link/deps primitives; gates the Area 5 DoD proof.
+   *Design: `docs/design/pipeline-redesign.md`. folds #32 + #43.*
+   - ✅ Front-end skills (`scope`, `decompose`, `grill`) + seam ops (#32)
    - Vendor `deep-research`; add `hjarne` + `code-exploration` abilities
-   - Column reshape (retire Research/Needs Input, add Scoping; cleanup off Done)
-   - Soften plan-approval; wire the autonomous queue (`touches:` serialization, normalized blocked-by)
+   - ✅ Column reshape (retire Research/Needs Input, add Scoping; cleanup off Done)
+   - ✅ Back-end (#43): `blacksmith_base_branch` resolver, Area-branch PRs, `plan-approval`, `land-area`, `clean-up`
+   - ⏸ Autonomous queue (`touches:` serialization, normalized blocked-by) — **parked to v2**
 
 ## Parked (future Epochs — explicitly NOT v1)
 

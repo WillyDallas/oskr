@@ -1,8 +1,7 @@
 # oskr intake → delivery pipeline — redesign
 
-**Date:** 2026-06-29 · **Status:** front-end + data model + branch/merge model + **v1 scope
-solidified**; the autonomous loop is **deferred to v2** · **spike:** [#32](https://github.com/WillyDallas/oskr/issues/32) (v1 Area 7)
-**#26 create/link/deps primitives:** ✅ **DONE** (PR #41) — this redesign is **unblocked**.
+**Date:** 2026-06-30 · **Status:** front-end **and** back-end **shipped** (developer-driven delivery: scope→decompose→plan→execute→merge→clean-up); the autonomous loop is **deferred to v2** · **spike:** [#32](https://github.com/WillyDallas/oskr/issues/32) (v1 Area 7)
+**#26 create/link/deps primitives:** ✅ **DONE** (PR #41). **Pipeline back-end:** ✅ **DONE** — Area [#43](https://github.com/WillyDallas/oskr/issues/43) (merged via #50): the `blacksmith_base_branch` resolver, Area-branch child PRs, explicit child-close + umbrella rollup, `plan-approval`, `land-area`, and `clean-up`.
 **Model:** [task-tracking](task-tracking-model.md) · **anchor consumer:** **oskr dogfooding its own
 next feature** (sluice is unseeded; coremyotherapy is non-code). **Reconciles** mattpocock
 (`grilling`→`to-prd`→`to-issues`) + story-spark (`scope-milestone`/`create-issue`/`daily-standup`)
