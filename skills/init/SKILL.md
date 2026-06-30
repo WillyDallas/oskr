@@ -9,27 +9,34 @@ You are walking the developer through bootstrapping a new oskr-managed project. 
 
 ## Phase 0: Pre-flight detection
 
-Before asking any questions, gather what you can from the environment.
+Source the init helpers and the blacksmith (portable across the cache vs `--plugin-dir`):
 
 ```bash
+source "$CLAUDE_PLUGIN_ROOT/bin/harness-lib.sh"
+source "$CLAUDE_PLUGIN_ROOT/bin/init-lib.sh"
+
 CWD=$(pwd)
 DIR_NAME=$(basename "$CWD")
 GH_USER=$(gh api user --jq '.login' 2>/dev/null || echo "")
-IN_GIT=$(git rev-parse --git-dir 2>/dev/null && echo yes || echo no)
-HAS_REMOTE=$([ "$IN_GIT" = "yes" ] && git remote get-url origin 2>/dev/null && echo yes || echo no)
-HAS_CONFIG=$([ -f harness-config.json ] && echo yes || echo no)
+
+IN_GIT=$([ -d .git ] || git rev-parse --git-dir >/dev/null 2>&1 && echo yes || echo no)
+HAS_ORIGIN=$( [ "$IN_GIT" = yes ] && git remote get-url origin >/dev/null 2>&1 && echo yes || echo no)
+HAS_CONFIG=$([ -f harness-config.json ] || [ -f .claude/harness-config.json ] && echo yes || echo no)
+
+# Forge-existence probe (clone vs create-new). Ask owner/repo first if not yet known;
+# default forge github. The probe is the blacksmith verb — never an inline gh/curl.
+REMOTE_EXISTS=$(blacksmith_remote_exists "${OWNER:-$GH_USER}" "${REPO:-$DIR_NAME}" && echo yes || echo no)
+
+MODE=$(init_detect_mode "$IN_GIT" "$HAS_ORIGIN" "$REMOTE_EXISTS" "$HAS_CONFIG")
+echo "Detected mode: $MODE"
 ```
 
-Report what you found in one line per fact:
-- CWD: `<path>`
-- GH user: `<login>`
-- Git repo: `<yes/no>`, remote: `<yes/no>`
-- harness-config.json exists: `<yes/no>`
+Report each fact on its own line, then branch on `$MODE`:
 
-**Branch:**
-- If `harness-config.json` exists → this project is already initialized. Stop and tell the developer: "This directory is already an oskr-managed project. Re-init would overwrite config. If that's what you want, delete harness-config.json first."
-- If `IN_GIT=yes` but `HAS_REMOTE=yes` → v1 doesn't support wiring to an existing GitHub remote. Surface this: "v1 supports fresh-repo bootstrap only. Wiring to an existing repo is tracked in oskr#16. To proceed, either rename/remove the existing origin or invoke this skill in a fresh directory."
-- Otherwise → proceed to Phase 1.
+- **already-init** → Stop: "This directory is already an oskr-managed project (`harness-config.json` present). Re-init would overwrite config; delete it first if that is what you want."
+- **create-new** → proceed to Phase 1 (greenfield: create repo + board).
+- **clone** → the repo exists on the forge but not here; clone it, then proceed to Phase 1 to write config / verify the board.
+- **adopt** → a local repo already wired to a remote; hand off to the **adopt path** (consent gate + register-only / full migration). *Adopt onboarding is built in a separate slice — do not provision over an existing board here.*
 
 ## Phase 1: Gather inputs (interactive)
 
@@ -438,4 +445,4 @@ Print a closing block:
 - One project per invocation. To init multiple, re-run.
 - Never run Phases 2-9 without explicit developer confirmation in Phase 1.
 - If any Phase fails partway through, stop and report what state was reached. Don't try to roll back automatically — the developer may want to inspect.
-- v1 supports fresh-repo bootstrap only. Wiring to an existing repo or board is oskr#16.
+- Onboarding mode (create-new / clone / adopt / already-init) is detected in Phase 0 via `init_detect_mode`. Adopt onboarding is built in a separate slice.
