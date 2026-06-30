@@ -1,6 +1,6 @@
 # Workflow token optimization — baseline + plan
 
-**Date:** 2026-06-30 · **Status:** plan, pre-implementation · **Tracking:** [#73](https://github.com/WillyDallas/oskr/issues/73)
+**Date:** 2026-06-30 (rev. 2026-07-01) · **Status:** levers 1–2 + budget docs landed; awaiting validation re-run · **Tracking:** [#73](https://github.com/WillyDallas/oskr/issues/73)
 
 oskr's multi-agent workflow skills are correct but **expensive** — the fan-outs dominate token cost. This doc records the first measured baseline and the plan to cut it. The two primary targets map to the two cost drivers:
 
@@ -41,8 +41,8 @@ The dominant term is `reviewers_per_child` (3 lenses + 1 synth = 60% of planning
 
 ## Levers (highest leverage first)
 
-1. **`planning-session`: collapse the reviewer panel.** Replace the always-on 3-lens panel + synthesizer (36 of 48 agents) with **one reviewer owning all axes**, escalating to the full panel **only** when the single reviewer flags risk or the task touches a named-seam contract. Eliminates the synth stage entirely. Est. **≈ −43%** of planning.
-2. **`decompose`: right-size the cut.** Cost is ~linear in child count; 9 tracer slices was generous. Add explicit guidance + a soft cap, and prefer merging trivially-coupled slices. ~−⅓ at 9→6.
+1. **`planning-session`: collapse the reviewer panel.** ✅ *Landed (0.3.7).* Replaced the always-on 3-lens panel + synthesizer (36 of 48 agents) with **one reviewer owning all axes**, escalating to the full panel **only** when the single reviewer returns ≠PASS, and at most once. The default reviewer still *runs/greps* the verify ACs, preserving the panel's highest-value catch. **Decision:** dropped the "or the task touches a named-seam contract" auto-escalation — it would panel every seam-touching task, and the ≠PASS signal already covers genuinely risky seam plans; chosen for max savings. Eliminates the synth stage on the clean path. Est. **≈ −43%** of planning.
+2. **`decompose`: right-size the cut.** ✅ *Landed (0.3.7).* Cost is ~linear in child count; 9 tracer slices was generous. Added explicit guidance + a soft cap (~6) and a merge-trivially-coupled-slices rule. ~−⅓ at 9→6.
 3. **Single planner pass.** The stock `planning-session` runs *two* planner rounds (scoping DoD, then execution); the Area-batch already collapsed these into one. Make the single pass the default and measure the quality delta.
 4. **Cheaper tiers for cheap stages.** Synthesis (merging JSON, no tree reads) and shallow lenses don't need the top model/effort — route them down.
 5. **Drop the un-re-reviewed revise.** A revise pass that isn't re-verified adds cost without a confidence gain; defer the fix to the human GATE 2 (plan-approval) instead, which exists to catch exactly this.
@@ -51,9 +51,9 @@ The dominant term is `reviewers_per_child` (3 lenses + 1 synth = 60% of planning
 
 ## Acceptance
 
-- [ ] `planning-session` reviewer fan-out is **conditional** (escalate; don't always run 3 lenses + synth).
-- [ ] `decompose` documents a right-sizing heuristic / soft cap on children.
-- [ ] `planning-session`, `decompose`, and `research` each document a default agent/reviewer budget.
+- [x] `planning-session` reviewer fan-out is **conditional** (escalate; don't always run 3 lenses + synth). — 0.3.7
+- [x] `decompose` documents a right-sizing heuristic / soft cap on children. — 0.3.7
+- [x] `planning-session`, `decompose`, and `research` each document a default agent/reviewer budget. — 0.3.7
 - [ ] A re-run on a comparable Area is measured here at a **materially lower** token cost than the 2.96M baseline, with **no drop** in caught-defect rate.
 
 ## Datapoints
@@ -61,3 +61,5 @@ The dominant term is `reviewers_per_child` (3 lenses + 1 synth = 60% of planning
 | Date | Area | Children | Planning tokens | Agents | Config |
 |---|---|---|---|---|---|
 | 2026-06-30 | #27 | 9 | 2,960,407 | 48 | 3-lens panel + synth + 1 revise (baseline) |
+| _target_ | — | ~6 | **~1.1M** | — | single reviewer, escalate-on-≠PASS (0.3.7); panel rare |
+| _(pending)_ | — | — | — | — | validation re-run on a comparable Area |
