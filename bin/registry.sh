@@ -92,6 +92,41 @@ registry_list() {
   jq -c '.projects' "$f"
 }
 
+# One-time, idempotent relocation of the legacy in-plugin registry into the
+# workspace. Transforms GitHub-only legacy entries ({github:"owner/repo",
+# project_number}) into the forge-tagged shape. No-op when the target already
+# exists (already migrated) or the source is absent (nothing to migrate).
+# SEQUENCING (T3): this MUST run before the first `add` in a workspace — `add`
+# first-creates registry.json, after which this guard short-circuits and the
+# legacy entries would be lost.
+registry_migrate() {
+  local d target
+  d=$(_registry_oskr_dir) || exit 1
+  target="$d/registry.json"
+
+  if [[ -f "$target" ]]; then
+    echo "[registry] already migrated ($target exists); no-op" >&2
+    return 0
+  fi
+  if [[ ! -f "$LEGACY_REGISTRY" ]]; then
+    echo "[registry] no legacy registry at $LEGACY_REGISTRY; no-op" >&2
+    return 0
+  fi
+
+  jq '{projects: [ .projects[] | {
+        name,
+        path,
+        forge: "github",
+        github: {
+          owner: ((.github // "") | split("/")[0]),
+          repo:  ((.github // "") | split("/")[1]),
+          project_number: (.project_number // 0)
+        },
+        registered_at: (.registered_at // "")
+      } ]}' "$LEGACY_REGISTRY" > "$target.tmp" && mv "$target.tmp" "$target"
+  echo "[registry] migrated $LEGACY_REGISTRY -> $target" >&2
+}
+
 case "${1:-}" in
   add)     shift; registry_add "$@" ;;
   list)    shift; registry_list "$@" ;;
