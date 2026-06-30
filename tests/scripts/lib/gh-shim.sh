@@ -67,4 +67,7 @@ fi
 if [[ "$args" == *dependencies/blocked_by* && "$args" == *issue_id=* ]]; then  # POST blocked-by edge (add_dep); GET read_deps has no issue_id= and falls through
   printf '%s' '{}' | emit; exit 0
 fi
+if [[ "$args" == *"repo view"* ]]; then         # remote_exists probe: rc 0 = exists, non-zero = absent
+  exit "${GH_SHIM_REPO_VIEW_RC:-0}"
+fi
 emit < "$GH_SHIM_FIXTURE"

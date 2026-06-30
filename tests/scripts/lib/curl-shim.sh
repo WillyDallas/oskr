@@ -41,5 +41,8 @@ if [[ "$args" == *"/issues"* ]]; then                   # POST create issue
   [[ -n "${CURL_SHIM_CREATE_FIXTURE:-}" ]] && { cat "$CURL_SHIM_CREATE_FIXTURE"; exit 0; }
   echo '{}'; exit 0
 fi
+if [[ "$args" == */repos/*/* ]]; then           # remote_exists probe: GET /repos/{owner}/{repo}; rc 0 = exists
+  exit "${CURL_SHIM_REPO_RC:-0}"
+fi
 echo "curl-shim: no route for: $args" >&2
 exit 22
