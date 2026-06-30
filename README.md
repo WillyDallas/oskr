@@ -5,6 +5,20 @@ Ratatoskr, the squirrel-courier of Yggdrasil) lets Claude Code skills and
 subagents drive a project's full workflow — research → planning →
 implementation → review — against a project board.
 
+## Install
+
+oskr ships as a Claude Code plugin. Add the marketplace, install, and reload:
+
+```
+/plugin marketplace add WillyDallas/oskr
+/plugin install oskr@oskr-marketplace
+/reload-plugins
+```
+
+To pull later changes: `/plugin marketplace update oskr-marketplace` →
+`/plugin update oskr@oskr-marketplace` → `/reload-plugins`. For local development
+against a checkout, launch with `claude --plugin-dir <path-to-repo>` instead.
+
 ## Pipeline
 
 Work flows across eight board states — **Backlog → Scoping → Planning → Plan
