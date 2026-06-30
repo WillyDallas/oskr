@@ -120,11 +120,29 @@ Agent(
 )
 ```
 
-### Step 4: Review the plan (parallel rubric panel)
+### Step 4: Review the plan (single reviewer; escalate the panel only on risk)
 
-The execution-round review fans the plan-reviewer's weighted rubric across independent lenses, then a synthesizer merges them into one verdict. The highest-leverage catch — the 30%-weighted "mechanically verifiable AC" axis — needs a reviewer that *runs or greps each AC command against the tree* rather than eyeballing it; a single generalist reviewer tends to spot-check. Splitting the rubric lets the verification lens actually execute while the others audit in parallel.
+The execution-round review is **one** `plan-reviewer` owning the entire weighted rubric. The 3-lens panel + synthesizer is **expensive** — on the Area #27 baseline it was 60% of all planning tokens — so it is spent only when the single reviewer flags risk, not on every plan. The key is that even the lone default reviewer must *run or grep each AC command against the tree* for the 30%-weighted "mechanically verifiable AC" axis (not eyeball it); that execution is the quality the panel used to buy, and it carries over to the cheap path.
 
-**4a — Spawn the rubric lenses in parallel.** Emit all three as `Agent` calls in one message. Each owns a disjoint slice of the rubric (the slices sum to 100, so scores are additive) and carries a `lens=<LENS>` marker:
+**4a — Single reviewer (default path).** Spawn one `plan-reviewer` for the full rubric:
+
+```
+Agent(
+  subagent_type: "plan-reviewer",
+  prompt: "HARNESS_TOKEN_MARKER role=plan-reviewer iteration=<ITER> issue=<NUMBER> kind=execution lens=full
+           Execution round for issue #<NUMBER> — full rubric.
+           Frozen DoD:
+           [paste accepted DoD]
+
+           Plan file: docs/plans/YYYY-MM-DD-<feature>.md
+
+           Score every weighted axis (they total 100). For the mechanically-verifiable-criteria axis, actually run/grep each AC command against the real tree and confirm it yields the claimed output shape — a UI plan with no `npx playwright test` AC scores 0/30. Emit the canonical Plan Review output per your agent definition's Execution Round Review format."
+)
+```
+
+If Overall is **PASS**, go to Step 5. **Only if Overall is NEEDS_IMPROVEMENT or FAIL** does the plan warrant the panel — escalate via 4b before looping back to the planner.
+
+**4b — Escalate to the rubric panel (risk only, at most once).** The single reviewer flagged the plan; a thorough multi-lens sweep now lets the planner fix everything in one loop instead of ping-ponging. Re-review the *same* draft by fanning the rubric across three parallel lenses + a synthesizer. Emit all three lens calls as `Agent` calls in one message. Each owns a disjoint slice of the rubric (the slices sum to 100, so scores are additive) and carries a `lens=<LENS>` marker:
 
 | lens | rubric axes it owns (weight) | what it must DO |
 |---|---|---|
@@ -146,7 +164,7 @@ Agent(
 )
 ```
 
-**4b — Synthesize one verdict.** Spawn a single `plan-reviewer` to merge the lens scores into the canonical Plan Review output per its agent definition's Execution Round Review format:
+Then spawn a single `plan-reviewer` to merge the lens scores into the canonical Plan Review output:
 
 ```
 Agent(
@@ -163,7 +181,7 @@ Agent(
 )
 ```
 
-If Overall is NEEDS_IMPROVEMENT or FAIL, loop back to Step 3 with the synthesized feedback. **On iterations 2–3, skip the panel** — spawn a single `plan-reviewer` that re-checks whether the named deficiencies were fixed and re-runs any AC command it touches. Max 3 iterations. After iteration 3, stop and surface the unresolved issues to the developer.
+**Looping.** Take the feedback (the single reviewer's, or the synthesized panel verdict if 4b ran) and loop back to Step 3. Re-reviews on iterations 2–3 are **always a single `plan-reviewer`** that re-checks whether the named deficiencies were fixed and re-runs any AC command it touches — the panel escalates **at most once**, on the first risk flag. Max 3 iterations. After iteration 3, stop and surface the unresolved issues to the developer.
 
 ### Step 5: Post DoD + review summary to issue
 
@@ -215,10 +233,14 @@ The allowlist restricts `git add` to paths under `docs/plans/`, so any other mod
 
 If the consumer project ships a `.claude/skills/planning-session/test-reference.md` documenting its testing tiers (frontend / backend / e2e, with example commands and helpers), the planner should read it before writing the plan so test ACs match the project's conventions. If the file is absent, the planner defers to `CLAUDE.md` and the project's existing test patterns.
 
+## Token budget
+
+The multi-agent fan-out is the cost; spend it deliberately. Default **clean path per task** (PASS on first review): 2 planner rounds + 2 single plan-reviewers = **~4 subagents**. The execution reviewer escalates to the 3-lens panel + synthesizer (**+4**) only on a ≠PASS verdict, at most once. Stock baseline with the always-on panel was ~5.3 subagents/child; an Area of N children costs ≈ N × the per-task figure. Record each Area's measured planning cost in the ledger — the Datapoints table in [`docs/design/workflow-token-optimization.md`](../../docs/design/workflow-token-optimization.md) — so runs stay comparable. Baseline to beat: **2.96M tokens / 48 agents** for 9 children. (A further saving — collapsing the two planner rounds into one, as the Area-batch did — is deferred; see lever #3 in that doc.)
+
 ## Key Rules
 
 - **This skill does not scope or grill.** If the input contract is missing, stop and redirect to `scope`.
 - One issue per invocation.
-- Fresh subagents per iteration (no shared context across iterations). The first execution-round review fans out the rubric panel (Step 4a) plus one synthesizer (Step 4b); the scoping review and later-iteration re-reviews are single plan-reviewers. Only the reviewer fans out — the planner stays single (parallel plan drafts break the single-canonical-file contract).
+- Fresh subagents per iteration (no shared context across iterations). The execution-round review is a **single** plan-reviewer by default; it escalates to the 3-lens panel + synthesizer (Step 4b) **only** when that reviewer returns ≠PASS, and **at most once**. The scoping review and later-iteration re-reviews are always single plan-reviewers. Only the reviewer ever fans out — the planner stays single (parallel plan drafts break the single-canonical-file contract).
 - DoD is frozen after scoping — execution round cannot amend the contract.
 - Never chain into `plan-approval` or `execute-plan` — those are separate human-gated skills.

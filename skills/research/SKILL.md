@@ -22,3 +22,7 @@ Assemble one grounded, cited digest so the grill that follows starts informed in
 5. **Post it** as a `## Research Digest` comment (`gh issue comment <n>`), and **leave the card where it is** — research never crosses a gate.
 
 **Done when:** a single reviewer-checked `## Research Digest` comment covering repo + web sits on the issue (or a fresh one already did, and you reused it).
+
+## Token budget
+
+Default fan-out: **researchers + 1 research-reviewer + 1 synthesizer**, iterating until the reviewer is satisfied. Keep the researcher count to what the subsystems actually demand — one per distinct subsystem, not one per file. The Area #27 scope round measured **~449k tokens / 7 agents** (research fan-out ~419k), roughly **⅐ the cost of a planning round**, so research is the secondary target; the reuse check in Step 1 (don't re-dig a still-valid digest) is the cheapest saving here. Record notable runs in the ledger — [`docs/design/workflow-token-optimization.md`](../../docs/design/workflow-token-optimization.md).
