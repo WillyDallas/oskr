@@ -23,6 +23,14 @@ assert_eq "$(jq -cS '.github' "$FIX/harness-config.sample.json")" \
           "$(jq -cS '.github' <<<"$gh_out")" "github: backend block matches fixture" || exit 1
 assert_eq "false" "$(jq 'has("forgejo")' <<<"$gh_out")" "github: no forgejo block" || exit 1
 
+# --- emitted config carries the live 8-column actionable_columns (T5/#60) ---
+assert_eq '["scoping","planning","ready"]' \
+          "$(jq -c '.workflow.actionable_columns' <<<"$gh_out")" \
+          "emitted config: actionable_columns are the live 8-column slugs" || exit 1
+assert_eq "false" \
+          "$(jq '[.workflow.actionable_columns[] | . == "needs_input" or . == "approval" or . == "research"] | any' <<<"$gh_out")" \
+          "emitted config: no retired slugs in actionable_columns" || exit 1
+
 # --- Forgejo shape: forge=forgejo, .forgejo block round-trips the forgejo fixture ---
 fj_out=$(emit forgejo sluice "" main https://git.squirrlylabs.dev squirrlylabs sluice)
 echo "$fj_out" | jq -e . >/dev/null || { echo "FAIL: forgejo emit is not valid JSON" >&2; exit 1; }

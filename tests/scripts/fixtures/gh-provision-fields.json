@@ -1,0 +1,12 @@
+{
+  "data": {
+    "node": {
+      "fields": {
+        "nodes": [
+          { "id": "PVTSSF_statusTEST",   "name": "Status" },
+          { "id": "PVTSSF_priorityTEST", "name": "Priority" }
+        ]
+      }
+    }
+  }
+}

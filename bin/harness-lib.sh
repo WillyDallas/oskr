@@ -157,6 +157,9 @@ blacksmith_base_branch()       { _blacksmith_dispatch base_branch "$@"; }
 blacksmith_provision_board()   { _blacksmith_dispatch provision_board "$@"; }
 blacksmith_remote_exists()     { _blacksmith_dispatch remote_exists "$@"; }
 
+# Board provisioning (init / setup; #27 T5). Routes through the seam like every op.
+blacksmith_provision_status_columns() { _blacksmith_dispatch provision_status_columns "$@"; }
+
 # --- column-vocabulary helpers (forge-agnostic) ----------------------------
 
 _blacksmith_normalize_slug() {
@@ -165,20 +168,26 @@ _blacksmith_normalize_slug() {
   printf '%s' "$s"
 }
 
-# Canonical slug → default display name
+# Canonical slug → default display name (8-column scheme; #27 T5).
 _blacksmith_default_name_for_slug() {
   case "$1" in
-    backlog)     echo "Backlog" ;;
-    research)    echo "Research" ;;
-    needs_input) echo "Needs Input" ;;
-    planning)    echo "Planning" ;;
-    approval)    echo "Approval" ;;
-    ready)       echo "Ready" ;;
-    in_progress) echo "In Progress" ;;
-    in_review)   echo "In Review" ;;
-    done)        echo "Done" ;;
-    *)           return 1 ;;
+    backlog)       echo "Backlog" ;;
+    scoping)       echo "Scoping" ;;
+    planning)      echo "Planning" ;;
+    plan_approval) echo "Plan Approval" ;;
+    ready)         echo "Ready" ;;
+    in_progress)   echo "In Progress" ;;
+    in_review)     echo "In Review" ;;
+    done)          echo "Done" ;;
+    *)             return 1 ;;
   esac
+}
+
+# The canonical board columns in board order — the SINGLE source of truth that kills
+# the provisioning-vs-runtime column drift (#52). Provisioning maps each slug to its
+# display name via _blacksmith_default_name_for_slug.
+_blacksmith_board_column_slugs() {
+  printf '%s\n' backlog scoping planning plan_approval ready in_progress in_review done
 }
 
 # Echoes the display name to look up in a backend's column representation.
@@ -331,6 +340,77 @@ _blacksmith_github_column_name_for() {
   local uuid="$1" options
   options=$(_blacksmith_github_status_options_json) || return 1
   printf '%s' "$options" | jq -er --arg id "$uuid" '.[] | select(.id == $id) | .name'
+}
+
+# --- Board provisioning (init/setup; #27 T5) -------------------------------
+
+# GitHub single-select option color (enum) for a column slug — presentation only.
+_blacksmith_github_color_for_slug() {
+  case "$1" in
+    backlog)       echo GRAY ;;
+    scoping)       echo BLUE ;;
+    planning)      echo PURPLE ;;
+    plan_approval) echo YELLOW ;;
+    ready)         echo GREEN ;;
+    in_progress)   echo BLUE ;;
+    in_review)     echo PURPLE ;;
+    done)          echo GREEN ;;
+    *)             echo GRAY ;;
+  esac
+}
+
+# Build the GraphQL singleSelectOptions array literal for the 8 canonical columns,
+# from the single-source-of-truth slug list. name+color+description mirror the shape
+# GitHub's ProjectV2SingleSelectFieldOptionInput requires.
+_blacksmith_github_status_options_literal() {
+  local slug name color out=""
+  while IFS= read -r slug; do
+    name=$(_blacksmith_default_name_for_slug "$slug") || return 1
+    color=$(_blacksmith_github_color_for_slug "$slug")
+    out+="{ name: \"$name\", color: $color, description: \"\" },"
+  done < <(_blacksmith_board_column_slugs)
+  printf '[%s]' "${out%,}"
+}
+
+# Provision the project's Status single-select field with the 8 canonical columns.
+# Augments the existing Status field IN PLACE (id-preserving, no orphaned assignments);
+# on failure, creates a separate "Phase" field with the same options. Echoes the
+# resulting status field NAME ("Status" | "Phase") so the caller records
+# workflow.status_field_name.  provision_status_columns <project_node_id>
+_blacksmith_github_provision_status_columns() {
+  local project_id="$1" options field_id resp
+  [[ -n "$project_id" ]] || { _blacksmith_die "provision_status_columns: project node id required"; return 1; }
+  options=$(_blacksmith_github_status_options_literal) || return 1
+  # shellcheck disable=SC2016
+  field_id=$(gh api graphql -f query='
+    query($projectId: ID!) {
+      node(id: $projectId) {
+        ... on ProjectV2 {
+          fields(first: 50) { nodes { ... on ProjectV2SingleSelectField { id name } } }
+        }
+      }
+    }
+  ' -f projectId="$project_id" --jq '.data.node.fields.nodes[] | select(.name == "Status") | .id' 2>/dev/null)
+  if [[ -n "$field_id" ]]; then
+    resp=$(gh api graphql -f query="
+      mutation(\$fieldId: ID!) {
+        updateProjectV2Field(input: { fieldId: \$fieldId, singleSelectOptions: $options }) {
+          projectV2Field { ... on ProjectV2SingleSelectField { id name } }
+        }
+      }
+    " -f fieldId="$field_id" 2>&1)
+    grep -q '"errors"' <<<"$resp" || { printf 'Status'; return 0; }
+  fi
+  gh api graphql -f query="
+    mutation(\$projectId: ID!) {
+      createProjectV2Field(input: {
+        projectId: \$projectId, dataType: SINGLE_SELECT, name: \"Phase\",
+        singleSelectOptions: $options
+      }) { projectV2Field { ... on ProjectV2SingleSelectField { id name } } }
+    }
+  " -f projectId="$project_id" >/dev/null 2>&1 \
+    || { _blacksmith_die "provision_status_columns: could not augment Status nor create Phase"; return 1; }
+  printf 'Phase'
 }
 
 # --- Compound operations ---------------------------------------------------
