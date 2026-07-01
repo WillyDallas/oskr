@@ -63,7 +63,7 @@ All commands run from the repo root: **`.`**.
 | AC4 | Detect→branch: existing-issues fixture → prompt verdict | `Run: bash tests/scripts/test_adopt_detect.sh` → `Expected: exit 0` (asserts `existing 2`) |
 | AC5 | Detect→branch: empty fixture → no-prompt verdict (empty repo proceeds without prompt) | covered by `Run: bash tests/scripts/test_adopt_detect.sh` → `Expected: exit 0` (asserts `empty 0`) |
 | AC6 | Register-only writes config (forge + github coords) | `Run: bash tests/scripts/test_adopt_register.sh` → `Expected: exit 0` (asserts `.forge==github`, `.github.owner==acme`) |
-| AC7 | Register-only fresh config emits the **8-column** workflow, no retired slugs | covered by `Run: bash tests/scripts/test_adopt_register.sh` → `Expected: exit 0` (asserts `.workflow.kind==gen-eval-8col`; `actionable_columns` contains none of `research`/`needs_input`/`approval`) |
+| AC7 | Register-only fresh config emits the canonical workflow (8-column dispatcher set, no retired slugs) | covered by `Run: bash tests/scripts/test_adopt_register.sh` → `Expected: exit 0` (asserts `.workflow.kind==gen-eval-9col` — the canonical stable token; `actionable_columns` contains none of `research`/`needs_input`/`approval`) |
 | AC8 | No-clobber: a pre-emitted config is preserved byte-for-byte | covered by `Run: bash tests/scripts/test_adopt_register.sh` → `Expected: exit 0` |
 | AC9 | Register-only delegates the registry entry to `registry.sh add` with the exact outgoing flags | covered by `Run: bash tests/scripts/test_adopt_register.sh` → `Expected: exit 0` (registry stub log contains `add`, `--name story-spark`, `--forge github`, `--owner acme`, `--repo story-spark`, `--path`) |
 | AC10 | **No-touch guarantee:** register-only makes zero forge calls | covered by `Run: bash tests/scripts/test_adopt_register.sh` → `Expected: exit 0` (gh + curl call logs are empty) |
@@ -350,7 +350,15 @@ Expected: PASS (both)
 
 **Acceptance Criteria:**
 - [ ] AC6: writes `harness-config.json` with `.forge` + github coords
-- [ ] AC7: fresh config emits the 8-column workflow (`.workflow.kind==gen-eval-8col`; `actionable_columns` contains no retired slug `research`/`needs_input`/`approval`)
+- [ ] AC7: fresh config emits the canonical workflow (`.workflow.kind==gen-eval-9col` — stable token; `actionable_columns` == the 8-column dispatcher set `["scoping","planning","ready"]`, no retired slug `research`/`needs_input`/`approval`)
+
+> **Reconciliation applied at execution (per the cross-task note below):** `init-lib.sh`
+> (#27 T5/#52) landed as the canonical config emitter with `kind: "gen-eval-9col"` (a
+> deliberately-kept stable token) and `actionable_columns: ["scoping","planning","ready"]`.
+> Rather than duplicate that block, `adopt-register.sh` now **delegates the fresh-config
+> write to `init_emit_config`** — one source of truth, so register-only writes exactly the
+> shape a fresh init does. The Task-4 inline-`jq` recipe below is superseded by that
+> delegation; the ACs above/here assert the reconciled canonical value.
 - [ ] AC8: no-clobber — a pre-existing config is preserved byte-for-byte
 - [ ] AC12: `bash tests/scripts/test_backend_no_inline_gh.sh` passes
 
