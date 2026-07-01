@@ -2,7 +2,7 @@
 name: init
 description: Interactive bootstrap for a new oskr-managed project. Creates the GitHub repo (private), provisions a Projects v2 board with oskr's 8-column / Priority+Size+Category schema, writes harness-config.json, registers the project in oskr's local registry, and optionally ingests a requirements markdown doc into seed issues. Run from inside the directory where the new consumer repo should live.
 argument-hint: "(no arguments — interactive)"
-allowed-tools: Bash(gh *) Bash(git *) Bash(mkdir *) Bash(touch *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(source "$CLAUDE_PLUGIN_ROOT/bin/*.sh") Bash(registry.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) Read Write Edit
+allowed-tools: Bash(gh *) Bash(git *) Bash(mkdir *) Bash(touch *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(source "$CLAUDE_PLUGIN_ROOT/bin/*.sh") Bash(registry.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(adopt-detect.sh*) Bash(adopt-register.sh*) Read Write Edit
 ---
 
 You are walking the developer through bootstrapping a new oskr-managed project. This is an interactive setup — branch based on detected state, ask only what you can't infer, and surface the impact of each step before doing it.
@@ -240,6 +240,44 @@ jq . harness-config.json > /dev/null || { echo "ABORT: malformed harness-config.
 For `create-new`/`clone`, `PROJECT_NUMBER` is the board number captured in Phase 4
 (provisioning slice); if Phase 4 has not run yet it defaults to `0` and the
 provisioning slice backfills it.
+
+## Phase 5b: Adopt — consent gate & register-only (adopt mode only)
+
+This phase runs ONLY in **adopt** mode (an existing local repo with a remote, classified
+by mode-detection). oskr **never auto-migrates** an adopted repo — it detects whether the
+repo already has a workflow and asks the developer how to proceed.
+
+1. **Detect existing issues.** With the adopt config already emitted (forge + coords),
+   probe the forge through the blacksmith:
+   ```bash
+   VERDICT=$(adopt-detect.sh)   # "existing <N>"  or  "empty 0"
+   ```
+
+2. **Branch on the verdict — never auto-migrate:**
+   - **`empty 0`** — the repo has no existing issues. There is nothing to migrate;
+     proceed without a migration prompt (register-only, or new-style provisioning if the
+     developer asked for it). Do NOT prompt.
+   - **`existing <N>`** — the repo already has issues/a board. **Stop and ask:**
+     > This repo has N existing issues. How should oskr adopt it?
+     > [1] **Register-only** — manage it without changing your board, columns, or issues
+     >     (for a shared project that keeps its own structure/skills, e.g. story-spark-child).
+     > [2] **Full migration** — harvest → reconcile → re-emit into oskr's Epoch/Area/Task
+     >     board (#27 T7).
+     > (default: 1)
+
+3. **Register-only (choice 1)** — bring the repo under management with no board changes:
+   ```bash
+   EXTRA=()
+   [ -n "$PROJECT_NUMBER" ] && EXTRA+=(--project-number "$PROJECT_NUMBER")
+   [ -n "$BASE_URL" ]       && EXTRA+=(--base-url "$BASE_URL")
+   adopt-register.sh --name "$NAME" --forge "$FORGE" \
+     --owner "$OWNER" --repo "$REPO" --path "$CWD" "${EXTRA[@]}"
+   ```
+   This writes `harness-config.json` (if not already emitted) + a registry entry and
+   touches **nothing** on the forge — the existing board is left exactly as it was.
+
+4. **Full migration (choice 2)** — hand off to the harvest → reconcile → re-emit flow
+   (#27 T7). Out of scope for the register-only path.
 
 ## Phase 6: Register in the oskr workspace registry
 
