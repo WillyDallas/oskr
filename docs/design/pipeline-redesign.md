@@ -280,11 +280,11 @@ pair, and cleanup reuses **doc-curator**.
 | developer-input | **merge** | folded into `scope` (GATE 1) |
 | planning-session | **keep** | Stage 3 (per-task); v2: parallel trigger + auto-approve path |
 | plan-review → `plan-approval` | **modify** | GATE 2; v1 human + batch sugar (`/plan-approval <umbrella#>`/`<child#>`); v2 fail-closed auto-proceed bypass |
-| execute-plan | **modify** | Stage 5: **per-Area configurable base** (child PR → Area branch), **explicit child close** on staging merge, Area worktree; `Re-Scope` abort; v2: parallel |
+| execute-plan | **modify** | Stage 5: **per-Area configurable base** (child PR → Area branch), **`Related:` through staging** (child stays open; `land-area` closes it at the trunk merge), Area worktree; `Re-Scope` abort; v2: parallel |
 | board-cleanup | **split** | doc reconcile → Stage 7 (off Done) with the **docs/brain split**; manual Done-clearing stays a chore |
 | init | **extend** | + **adopt-existing** mode (brownfield re-intake; see coremyotherapy below) |
-| sync-worktree / start-end-dispatch | **keep** | unchanged utils; dispatcher drives the queue via `actionable_columns` |
-| — | **new** | skills: `precursor-research`, `scope` (orchestrator), `grill`, `to-prd`, `decompose`, `clean-up`; abilities: `research`, `deep-research` (vendor), `hjarne`, `code-exploration` |
+| sync-worktree / the dispatcher (`bin/dispatch-loop.sh` + `bin/board-dispatcher.sh`) | **keep** | unchanged utils; dispatcher drives the queue via `actionable_columns` |
+| — | **new** | skills: `precursor-research`, `scope` (orchestrator), `grill`, `to-prd`, `decompose`, `land-area`, `clean-up`; abilities: `research`, `deep-research` (vendor), `hjarne`, `code-exploration` |
 
 ## Blacksmith op mapping (#26 landed — abstract names → real verbs)
 
@@ -305,7 +305,7 @@ backends live-validated):
 | Status read | `blacksmith_issue_status` / `blacksmith_item_status` |
 | Cleanup archive / PR check | `blacksmith_archive_item` / `blacksmith_pr_open_count` |
 
-**Seam ops — `set_milestone` + `add_dep` shipped (v0.2.12); one gap remains:**
+**Seam ops — `set_milestone` + `add_dep` shipped (v0.2.12); `base_branch` shipped with Track C (v0.3.3):**
 - ✅ **`blacksmith_set_milestone <issue> <title>`** — Epoch assignment, both backends (resolves
   title→number on GitHub / title→id on Forgejo; **never creates** — that stays a manual setup step,
   and an unknown title fails loudly). Skills **compose** `create_issue` + `set_milestone` rather than a
@@ -314,9 +314,12 @@ backends live-validated):
 - ✅ **`blacksmith_add_dep <blocked> <blocker>`** — native blocked-by write, both backends (GitHub
   resolves blocker→db id then POSTs `/dependencies/blocked_by`; Forgejo POSTs `IssueMeta{index}` to
   `/dependencies`). Test: `test_blacksmith_add_dep.sh`.
-- ⏳ **Per-Area configurable base** (Track C) — `base_branch` is read as a single scalar at ~5 sites
-  (execute-plan PR base, `sync-worktree`, `sync-development`, the dispatch-incomplete `$BASE..$b`
-  count, board-cleanup's `baseRefName==base` check). Each must resolve the Area branch (`area/<slug>`).
+- ✅ **`blacksmith_base_branch <issue#>`** — the per-Area base resolver, both backends (walks task →
+  parent umbrella → the recorded `<!-- oskr:area-branch … -->` marker; falls back to config
+  `.base_branch` / `main` for solo / area-less tasks). `execute-plan` resolves its PR base through it
+  (`base-branch.sh` wrapper). Test: `test_blacksmith_base_branch.sh`. Residual: `sync-worktree` /
+  `sync-development` / the dispatcher still read the single config `.base_branch` scalar — driving
+  them against an arbitrary Area branch is a known refinement.
 
 **Canonical-store rule** still holds: membership/deps live in native fields + the issue body; never
 gate on a field only one backend has.
@@ -383,11 +386,15 @@ The goal: construct the skills/agents/scripts that make this flow runnable. **Ag
    `link_parent`, `add_dep`, slim `## What`/`## AC` contract). Plus 5 `bin` wrappers
    (create-issue/set-milestone/link-parent/add-dep/list-children).
 
-**Track C — the coded back-end (oskr):**
-6. `execute-plan` **modify**: per-Area configurable base (child PR → Area branch), explicit child
-   close on staging merge, Area worktree (+ teardown).
-7. `plan-review` → **`plan-approval`**: v1 human + the batch/individual `/plan-approval` sugar.
-8. `board-cleanup` → **`clean-up`**: off Done, with the docs/brain split rule.
+**Track C — the coded back-end (oskr): ✅ BUILT (Area #43, merged via #50, v0.3.3)**
+6. ✅ `execute-plan` **modify**: per-Area configurable base via `base-branch.sh` (child PR → Area
+   branch), children ride `Related:` through staging and **stay open**, Area worktree. Plus the new
+   **`land-area`** skill (#46): verifies every child PR merged into the Area branch, rolls the
+   umbrella to In Review, opens the Area→main PR whose `Closes` retires every child + the umbrella
+   on the single human merge. (Area-branch worktree **teardown** after the trunk merge is still a
+   `sync-worktree` extension, not built.)
+7. ✅ `plan-review` → **`plan-approval`**: v1 human + the batch/individual `/plan-approval` sugar.
+8. ✅ `board-cleanup` → **`clean-up`**: off Done, with the docs/brain split rule.
 
 **Deferred to v2 (explicitly out of v1):** the autonomous loop update (run without `-p`), the
 auto-grab predicate, the plan-approval auto-proceed bypass (`bin/plan-approve-gate.sh`), `touches:`

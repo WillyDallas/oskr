@@ -1,0 +1,24 @@
+{
+  "epoch": "coremyotherapy v1",
+  "areas": [
+    {
+      "slug": "intake",
+      "title": "[Area] Patient intake",
+      "what": "Patients self-register and get triaged.",
+      "ac": "- [ ] Registration persists.\n- [ ] Triage assigns a tier.",
+      "tasks": [
+        { "title": "Registration form", "what": "Build the self-registration form.", "ac": "- [ ] Form submits and persists." },
+        { "title": "Triage rules",       "what": "Encode triage tiering.",            "ac": "- [ ] Rules assign a tier." }
+      ]
+    },
+    {
+      "slug": "billing",
+      "title": "[Area] Billing",
+      "what": "Generate invoices from visits.",
+      "ac": "- [ ] An invoice is emitted per visit.",
+      "tasks": [
+        { "title": "Invoice model", "what": "Model invoices.", "ac": "- [ ] Invoice row saved." }
+      ]
+    }
+  ]
+}

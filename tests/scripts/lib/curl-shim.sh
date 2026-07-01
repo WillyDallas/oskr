@@ -6,6 +6,7 @@
 #
 # Fixture routing (first match wins):
 #   .../dependencies   + $CURL_SHIM_DEPS_FIXTURE   -> that fixture
+#   .../repos/{o}/{r}  + $CURL_SHIM_REPO_FIXTURE   -> that fixture (repo object; deps-unit read)
 : "${CURL_SHIM_CALL_LOG:?CURL_SHIM_CALL_LOG not set}"
 printf 'curl %s\n' "$*" >> "$CURL_SHIM_CALL_LOG"
 
@@ -40,6 +41,12 @@ fi
 if [[ "$args" == *"/issues"* ]]; then                   # POST create issue
   [[ -n "${CURL_SHIM_CREATE_FIXTURE:-}" ]] && { cat "$CURL_SHIM_CREATE_FIXTURE"; exit 0; }
   echo '{}'; exit 0
+fi
+if [[ -n "${CURL_SHIM_REPO_FIXTURE:-}" && "$args" == */repos/* ]]; then   # GET repo object (deps-unit assertion)
+  cat "$CURL_SHIM_REPO_FIXTURE"; exit 0
+fi
+if [[ "$args" == */repos/*/* ]]; then           # remote_exists probe: GET /repos/{owner}/{repo}; rc 0 = exists
+  exit "${CURL_SHIM_REPO_RC:-0}"
 fi
 echo "curl-shim: no route for: $args" >&2
 exit 22
