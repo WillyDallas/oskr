@@ -48,8 +48,8 @@ the task's base via `blacksmith_base_branch` (the Area branch, not `main`), bran
 it, and runs the implementer/reviewer generator–evaluator loop. On completion it opens a
 child PR **targeting the Area branch** and the card lands in **In Review**. Use
 `sync-worktree` before resuming work to merge the latest base in. Because children target
-a non-default base, `Closes #N` does **not** fire on their merge — they are closed
-explicitly when their PR merges into the Area branch.
+a non-default base, `Closes #N` does **not** fire on their merge — the child PR carries
+`Related: #N`, the issue stays open through staging, and `land-area` closes it later.
 
 **In Review → Done — the merge (GATE 3).** Merge each child PR into the Area branch.
 Once every child has landed, `land-area <umbrella#>` rolls the umbrella to In Review and
