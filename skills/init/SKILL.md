@@ -2,34 +2,41 @@
 name: init
 description: Interactive bootstrap for a new oskr-managed project. Creates the GitHub repo (private), provisions a Projects v2 board with oskr's 9-column / Priority+Size+Category schema, writes harness-config.json, registers the project in oskr's local registry, and optionally ingests a requirements markdown doc into seed issues. Run from inside the directory where the new consumer repo should live.
 argument-hint: "(no arguments — interactive)"
-allowed-tools: Bash(gh *) Bash(git *) Bash(mkdir *) Bash(touch *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(registry.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) Read Write Edit
+allowed-tools: Bash(gh *) Bash(git *) Bash(mkdir *) Bash(touch *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(source "$CLAUDE_PLUGIN_ROOT/bin/*.sh") Bash(registry.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) Read Write Edit
 ---
 
 You are walking the developer through bootstrapping a new oskr-managed project. This is an interactive setup — branch based on detected state, ask only what you can't infer, and surface the impact of each step before doing it.
 
 ## Phase 0: Pre-flight detection
 
-Before asking any questions, gather what you can from the environment.
+Source the init helpers and the blacksmith (portable across the cache vs `--plugin-dir`):
 
 ```bash
+source "$CLAUDE_PLUGIN_ROOT/bin/harness-lib.sh"
+source "$CLAUDE_PLUGIN_ROOT/bin/init-lib.sh"
+
 CWD=$(pwd)
 DIR_NAME=$(basename "$CWD")
 GH_USER=$(gh api user --jq '.login' 2>/dev/null || echo "")
-IN_GIT=$(git rev-parse --git-dir 2>/dev/null && echo yes || echo no)
-HAS_REMOTE=$([ "$IN_GIT" = "yes" ] && git remote get-url origin 2>/dev/null && echo yes || echo no)
-HAS_CONFIG=$([ -f harness-config.json ] && echo yes || echo no)
+
+IN_GIT=$([ -d .git ] || git rev-parse --git-dir >/dev/null 2>&1 && echo yes || echo no)
+HAS_ORIGIN=$( [ "$IN_GIT" = yes ] && git remote get-url origin >/dev/null 2>&1 && echo yes || echo no)
+HAS_CONFIG=$([ -f harness-config.json ] || [ -f .claude/harness-config.json ] && echo yes || echo no)
+
+# Forge-existence probe (clone vs create-new). Ask owner/repo first if not yet known;
+# default forge github. The probe is the blacksmith verb — never an inline gh/curl.
+REMOTE_EXISTS=$(blacksmith_remote_exists "${OWNER:-$GH_USER}" "${REPO:-$DIR_NAME}" && echo yes || echo no)
+
+MODE=$(init_detect_mode "$IN_GIT" "$HAS_ORIGIN" "$REMOTE_EXISTS" "$HAS_CONFIG")
+echo "Detected mode: $MODE"
 ```
 
-Report what you found in one line per fact:
-- CWD: `<path>`
-- GH user: `<login>`
-- Git repo: `<yes/no>`, remote: `<yes/no>`
-- harness-config.json exists: `<yes/no>`
+Report each fact on its own line, then branch on `$MODE`:
 
-**Branch:**
-- If `harness-config.json` exists → this project is already initialized. Stop and tell the developer: "This directory is already an oskr-managed project. Re-init would overwrite config. If that's what you want, delete harness-config.json first."
-- If `IN_GIT=yes` but `HAS_REMOTE=yes` → v1 doesn't support wiring to an existing GitHub remote. Surface this: "v1 supports fresh-repo bootstrap only. Wiring to an existing repo is tracked in oskr#16. To proceed, either rename/remove the existing origin or invoke this skill in a fresh directory."
-- Otherwise → proceed to Phase 1.
+- **already-init** → Stop: "This directory is already an oskr-managed project (`harness-config.json` present). Re-init would overwrite config; delete it first if that is what you want."
+- **create-new** → proceed to Phase 1 (greenfield: create repo + board).
+- **clone** → the repo exists on the forge but not here; clone it, then proceed to Phase 1 to write config / verify the board.
+- **adopt** → a local repo already wired to a remote; hand off to the **adopt path** (consent gate + register-only / full migration). *Adopt onboarding is built in a separate slice — do not provision over an existing board here.*
 
 ## Phase 1: Gather inputs (interactive)
 
@@ -50,6 +57,8 @@ Ask one question at a time. Pre-fill defaults from Phase 0 where possible.
    - Ask: "Base branch for feature PRs? (default: main)"
 
 6. **Requirements doc path** — optional. Ask: "Path to a markdown requirements doc to ingest as seed issues? (leave blank to skip)"
+
+7. **Backend (forge)** — `github` (default) or `forgejo`. Ask: "Backend? github (default) or forgejo". Set `FORGE` accordingly (default `github`). For `forgejo`, also gather `BASE_URL` (e.g. `https://git.example.org`) and confirm `$FORGEJO_TOKEN` is set in the workspace `.env`.
 
 Confirm the full input set back to the developer before proceeding:
 > Setup plan:
@@ -274,50 +283,24 @@ gh api graphql -f query='
 
 ## Phase 5: Write harness-config.json
 
-Build the config based on inputs and Phase 4 outcomes.
+Emit the config through the init writer — it stamps the `forge` discriminator and
+the matching backend block. (`init-lib.sh` was sourced in Phase 0.)
 
 ```bash
-# workflow.column_names depends on Path 1 vs Path 2 — only Path 2 needs an alias for the status field name
-if [[ "$STATUS_PATH_TAKEN" == "phase" ]]; then
-  WORKFLOW_BLOCK='"workflow": {
-    "kind": "gen-eval-9col",
-    "column_names": {},
-    "status_field_name": "Phase",
-    "actionable_columns": ["research", "planning", "ready"]
-  }'
+if [[ "${FORGE:-github}" == "forgejo" ]]; then
+  init_emit_config forgejo "$NAME" "$TECH_STACK" "$BASE_BRANCH" \
+    "$BASE_URL" "$OWNER" "$REPO" > harness-config.json
 else
-  WORKFLOW_BLOCK='"workflow": {
-    "kind": "gen-eval-9col",
-    "column_names": {},
-    "actionable_columns": ["research", "planning", "ready"]
-  }'
+  init_emit_config github "$NAME" "$TECH_STACK" "$BASE_BRANCH" \
+    "$OWNER" "$REPO" "${PROJECT_NUMBER:-0}" > harness-config.json
 fi
 
-cat > harness-config.json <<EOF
-{
-  "name": "$NAME",
-  "github": {
-    "owner": "$OWNER",
-    "repo": "$REPO",
-    "project_number": $PROJECT_NUMBER
-  },
-  $WORKFLOW_BLOCK,
-  "paths": {
-    "plans": "docs/plans",
-    "research": "docs/research",
-    "plan_archive": "docs/_local_archive"
-  },
-  "agent_context": {
-    "project_name": "$NAME",
-    "tech_stack": "$TECH_STACK"
-  },
-  "base_branch": "$BASE_BRANCH"
-}
-EOF
-
-# Validate
 jq . harness-config.json > /dev/null || { echo "ABORT: malformed harness-config.json"; exit 1; }
 ```
+
+For `create-new`/`clone`, `PROJECT_NUMBER` is the board number captured in Phase 4
+(provisioning slice); if Phase 4 has not run yet it defaults to `0` and the
+provisioning slice backfills it.
 
 ## Phase 6: Register in the oskr workspace registry
 
@@ -434,4 +417,4 @@ Print a closing block:
 - One project per invocation. To init multiple, re-run.
 - Never run Phases 2-9 without explicit developer confirmation in Phase 1.
 - If any Phase fails partway through, stop and report what state was reached. Don't try to roll back automatically — the developer may want to inspect.
-- v1 supports fresh-repo bootstrap only. Wiring to an existing repo or board is oskr#16.
+- Onboarding mode (create-new / clone / adopt / already-init) is detected in Phase 0 via `init_detect_mode`. Adopt onboarding is built in a separate slice.

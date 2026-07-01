@@ -154,6 +154,7 @@ blacksmith_list_children()     { _blacksmith_dispatch list_children "$@"; }
 blacksmith_set_milestone()     { _blacksmith_dispatch set_milestone "$@"; }
 blacksmith_add_dep()           { _blacksmith_dispatch add_dep "$@"; }
 blacksmith_base_branch()       { _blacksmith_dispatch base_branch "$@"; }
+blacksmith_remote_exists()     { _blacksmith_dispatch remote_exists "$@"; }
 
 # --- column-vocabulary helpers (forge-agnostic) ----------------------------
 
@@ -588,6 +589,14 @@ _blacksmith_github_archive_item() {
   ' -f project="$project_id" -f item="$item_id"
 }
 
+# Probe whether owner/repo exists on GitHub. Returns 0 if it exists, non-zero
+# otherwise. Used by init v2 mode detection (create-new vs clone). No stdout.
+#   remote_exists <owner> <repo>
+_blacksmith_github_remote_exists() {
+  local owner="$1" repo="$2"
+  gh repo view "${owner}/${repo}" --json nameWithOwner >/dev/null 2>&1
+}
+
 # Echo the number of OPEN PRs whose head branch is $1 (0 on any error).
 _blacksmith_github_pr_open_count() {
   local branch="$1" owner repo
@@ -809,6 +818,14 @@ _blacksmith_forgejo_read_deps() {
       repository: (.repository.full_name // ""),
       url: .html_url
     } ]'
+}
+
+# Probe whether owner/repo exists on the Forgejo instance. Returns 0 if it
+# exists, non-zero otherwise. Same neutral contract as the GitHub probe.
+#   remote_exists <owner> <repo>
+_blacksmith_forgejo_remote_exists() {
+  local owner="$1" repo="$2"
+  _blacksmith_forgejo_curl GET "/repos/${owner}/${repo}" >/dev/null 2>&1
 }
 
 # On Forgejo the issue IS the board item, so the "item handle" callers pass around
