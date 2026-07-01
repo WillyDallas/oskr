@@ -3,8 +3,23 @@
     {
       "name": "<project-name>",
       "path": "<absolute-path-to-the-project-checkout>",
-      "github": "<owner>/<repo>",
-      "project_number": 0,
+      "forge": "github",
+      "github": {
+        "owner": "<owner>",
+        "repo": "<repo>",
+        "project_number": 0
+      },
+      "registered_at": "<ISO-8601 timestamp>"
+    },
+    {
+      "name": "<forgejo-project-name>",
+      "path": "<absolute-path-to-the-project-checkout>",
+      "forge": "forgejo",
+      "forgejo": {
+        "base_url": "https://forge.example",
+        "owner": "<owner>",
+        "repo": "<repo>"
+      },
       "registered_at": "<ISO-8601 timestamp>"
     }
   ]

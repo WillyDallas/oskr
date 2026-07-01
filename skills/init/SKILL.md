@@ -2,7 +2,7 @@
 name: init
 description: Interactive bootstrap for a new oskr-managed project. Creates the GitHub repo (private), provisions a Projects v2 board with oskr's 9-column / Priority+Size+Category schema, writes harness-config.json, registers the project in oskr's local registry, and optionally ingests a requirements markdown doc into seed issues. Run from inside the directory where the new consumer repo should live.
 argument-hint: "(no arguments — interactive)"
-allowed-tools: Bash(gh *) Bash(git *) Bash(mkdir *) Bash(touch *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(find-item.sh*) Bash(move-issue.sh*) Read Write Edit
+allowed-tools: Bash(gh *) Bash(git *) Bash(mkdir *) Bash(touch *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(registry.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) Read Write Edit
 ---
 
 You are walking the developer through bootstrapping a new oskr-managed project. This is an interactive setup — branch based on detected state, ask only what you can't infer, and surface the impact of each step before doing it.
@@ -319,27 +319,23 @@ EOF
 jq . harness-config.json > /dev/null || { echo "ABORT: malformed harness-config.json"; exit 1; }
 ```
 
-## Phase 6: Register in the oskr project registry
+## Phase 6: Register in the oskr workspace registry
 
-The registry tracks all consumers managed by this oskr install. The future cross-project dispatcher (oskr#6) reads from it. For now it's a stub that init populates.
+The registry tracks every project this oskr **workspace** manages. It lives in the
+workspace at `<workspace>/.oskr/registry.json`, resolved by `registry.sh` — never in
+the plugin source. (The one-time relocation of any legacy in-plugin registry is run by
+`/oskr-setup` via `registry.sh migrate`, **before** any project's first `registry.sh add`.)
 
 ```bash
-REGISTRY="$HOME/WillyDev/oskr/repos/projects.json"
-mkdir -p "$(dirname "$REGISTRY")"
-[[ -f "$REGISTRY" ]] || echo '{"projects": []}' > "$REGISTRY"
+registry.sh add \
+  --name "$NAME" \
+  --path "$CWD" \
+  --forge github \
+  --owner "$OWNER" \
+  --repo "$REPO" \
+  --project-number "$PROJECT_NUMBER"
 
-NEW_ENTRY=$(jq -n \
-  --arg name "$NAME" \
-  --arg path "$CWD" \
-  --arg gh "$OWNER/$REPO" \
-  --argjson pn "$PROJECT_NUMBER" \
-  --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  '{name: $name, path: $path, github: $gh, project_number: $pn, registered_at: $ts}')
-
-jq --argjson entry "$NEW_ENTRY" '.projects += [$entry]' "$REGISTRY" > "$REGISTRY.tmp" \
-  && mv "$REGISTRY.tmp" "$REGISTRY"
-
-echo "Registered $NAME in $REGISTRY"
+echo "Registered $NAME in the workspace registry (.oskr/registry.json)"
 ```
 
 ## Phase 7: Create starter CLAUDE.md and docs scaffolding
@@ -424,7 +420,7 @@ Print a closing block:
 >
 > - Project board: `<PROJECT_URL>`
 > - Local path: `$CWD`
-> - Registered in: `$REGISTRY`
+> - Registered in: `<workspace>/.oskr/registry.json`
 > - Status field strategy: `<Path 1 / Path 2>`
 > - Seed issues created: N
 >
