@@ -34,3 +34,27 @@ pins an explicit version and Claude Code caches by that string, so a bump is
 what would surface an update — but whether we keep pin-and-bump, move to an
 unversioned/track-SHA scheme, or pin a marketplace ref is **open in #38**.
 Treat the bump as a tracking convention, not a finalized distribution strategy.
+
+## Developing oskr: dev vs installed
+
+oskr lives at `projects/oskr` inside the workspace **and** is the plugin Claude Code
+loads — a deliberate self-hosting recursion. So "I edited a skill" must not silently
+change every workspace operation.
+
+**The installed/pinned plugin is the default.** Working *on* oskr is a deliberate
+`--plugin-dir projects/oskr` launch, never ambient:
+
+    claude --plugin-dir projects/oskr     # load the dev checkout in-place for this session
+
+Do not leave both enabled. A `--plugin-dir` dev copy does **not** replace a
+marketplace-cached copy — both can be enabled at once, a **double-enable** collision
+that yields duplicate `/oskr:*` skills and two `bin/` dirs on `PATH` with ambiguous
+precedence.
+
+**Which copy is active?** Run the doctor:
+
+    bin/doctor.sh
+
+It reads `$CLAUDE_PLUGIN_ROOT` and `$PATH` and reports whether the active copy is a
+**dev** checkout or the **installed** marketplace cache (`~/.claude/plugins/cache`),
+and exits non-zero with a warning if it detects a double-enable collision.
