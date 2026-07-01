@@ -1,0 +1,10 @@
+{
+  "name": "sluice",
+  "full_name": "squirrlylabs/sluice",
+  "has_issues": true,
+  "internal_tracker": {
+    "enable_time_tracker": true,
+    "allow_only_contributors_to_track_time": false,
+    "enable_issue_dependencies": false
+  }
+}

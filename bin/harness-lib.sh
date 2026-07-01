@@ -154,6 +154,7 @@ blacksmith_list_children()     { _blacksmith_dispatch list_children "$@"; }
 blacksmith_set_milestone()     { _blacksmith_dispatch set_milestone "$@"; }
 blacksmith_add_dep()           { _blacksmith_dispatch add_dep "$@"; }
 blacksmith_base_branch()       { _blacksmith_dispatch base_branch "$@"; }
+blacksmith_provision_board()   { _blacksmith_dispatch provision_board "$@"; }
 blacksmith_remote_exists()     { _blacksmith_dispatch remote_exists "$@"; }
 
 # --- column-vocabulary helpers (forge-agnostic) ----------------------------
@@ -906,6 +907,59 @@ _blacksmith_forgejo_ensure_label() {
   _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/labels" \
     "$(jq -nc --arg n "$name" --arg d "$description" --arg c "$color" '{name:$n, description:$d, color:$c}')" \
     >/dev/null 2>&1 || true
+}
+
+# Idempotent EXCLUSIVE scoped-label create (a single-select board column). Unlike
+# the neutral _blacksmith_forgejo_ensure_label, sets exclusive:true so assigning one
+# label in a scope auto-evicts the prior same-scope label (server-enforced; see
+# docs/research/2026-06-27-backend-capability.md:43-49). Never fails the caller
+# (re-creating an existing label 422s and is tolerated for idempotency).
+#   _blacksmith_forgejo_ensure_exclusive_label <name> [description] [color]
+_blacksmith_forgejo_ensure_exclusive_label() {
+  local name="$1" description="${2:-}" color="${3:-ededed}" owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  [[ "$color" == \#* ]] || color="#$color"
+  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/labels" \
+    "$(jq -nc --arg n "$name" --arg d "$description" --arg c "$color" \
+        '{name:$n, exclusive:true, color:$c, description:$d}')" \
+    >/dev/null 2>&1 || true
+}
+
+# Assert the per-repo issue-dependencies unit is enabled. If it is off, Forgejo's
+# /dependencies endpoints 404 and read_deps/add_dep silently degrade — so this is a
+# LOUD gate at provisioning time, not a silent skip. Reads internal_tracker off the
+# repo object. See docs/research/2026-06-27-backend-capability.md:41,124.
+#   _blacksmith_forgejo_assert_deps_unit <owner> <repo>
+_blacksmith_forgejo_assert_deps_unit() {
+  local owner="$1" repo="$2" raw enabled
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}") \
+    || { _blacksmith_die "provision_board: cannot read repo ${owner}/${repo} to verify the issue-dependencies unit"; return 1; }
+  enabled=$(printf '%s' "$raw" | jq -r '.internal_tracker.enable_issue_dependencies // false')
+  [[ "$enabled" == "true" ]] \
+    || { _blacksmith_die "provision_board: issue-dependencies unit is DISABLED on ${owner}/${repo}; enable it (repo Settings -> Units) before onboarding"; return 1; }
+}
+
+# Provision a Forgejo repo's board behind the seam: assert the issue-dependencies
+# unit, then create the 8 status columns + priority/size/category taxonomy as
+# EXCLUSIVE scoped labels. Idempotent on labels; fails LOUDLY if the deps unit is off.
+# Live acceptance is Area 5's gate (bin/smoke/forgejo-roundtrip.sh); curl-shim-proven here.
+#   provision_board
+_blacksmith_forgejo_provision_board() {
+  local owner repo slug
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  _blacksmith_forgejo_assert_deps_unit "$owner" "$repo" || return 1
+
+  # The reshaped 8-column status scheme (slugs only; display names live in
+  # _blacksmith_default_name_for_slug, owned by the T5 reshape — independent here).
+  for slug in backlog scoping planning plan_approval ready in_progress in_review done; do
+    _blacksmith_forgejo_ensure_exclusive_label "status/${slug}" "oskr status column" "ededed"
+  done
+  # Priority / Size / Category taxonomy (each scope single-select).
+  for slug in p1 p2 p3;                      do _blacksmith_forgejo_ensure_exclusive_label "priority/${slug}" "oskr priority" "d73a4a"; done
+  for slug in xs s m l xl;                   do _blacksmith_forgejo_ensure_exclusive_label "size/${slug}"     "oskr size"     "0e8a16"; done
+  for slug in feature bug chore spike docs;  do _blacksmith_forgejo_ensure_exclusive_label "category/${slug}" "oskr category" "5319e7"; done
 }
 
 # Add a label to an issue by name (never fails the caller).
