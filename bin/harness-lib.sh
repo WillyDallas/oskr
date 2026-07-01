@@ -837,6 +837,27 @@ _blacksmith_github_set_milestone() {
     || { _blacksmith_die "set_milestone: failed to set #$issue -> '$title'"; return 1; }
 }
 
+# Find-or-create a milestone by TITLE; echo its number. Idempotent: returns the
+# existing milestone's number if present, else POSTs a new open milestone. Adopt
+# re-emit uses this to materialize the Epoch (set_milestone only RESOLVES one).
+#   create_milestone <title>
+_blacksmith_github_create_milestone() {
+  local title="$1" owner repo raw number
+  [[ -n "$title" ]] || { _blacksmith_die "create_milestone: title required"; return 1; }
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/milestones?state=all&per_page=100" 2>/dev/null) \
+    || { _blacksmith_die "create_milestone: cannot list milestones"; return 1; }
+  number=$(printf '%s' "$raw" | jq -r --arg t "$title" 'map(select(.title==$t)) | .[0].number // empty')
+  if [[ -z "$number" ]]; then
+    raw=$(gh api "repos/${owner}/${repo}/milestones" -f title="$title" 2>/dev/null) \
+      || { _blacksmith_die "create_milestone: create failed for '$title'"; return 1; }
+    number=$(printf '%s' "$raw" | jq -er '.number') \
+      || { _blacksmith_die "create_milestone: no number in create response"; return 1; }
+  fi
+  printf '%s' "$number"
+}
+
 # --- Dependency write (native blocked-by edge) ------------------------------
 # Record that <blocked> is BLOCKED BY <blocker> as a native typed edge (the read
 # side is blacksmith_read_deps). GOTCHA: the dependencies API takes the blocker's
@@ -1252,6 +1273,25 @@ _blacksmith_forgejo_set_milestone() {
   _blacksmith_forgejo_curl PATCH "/repos/${owner}/${repo}/issues/${issue}" \
     "$(jq -nc --argjson m "$mid" '{milestone: $m}')" >/dev/null \
     || { _blacksmith_die "set_milestone (forgejo): failed to set #$issue -> '$title'"; return 1; }
+}
+
+# Forgejo find-or-create milestone by TITLE; echo its id. Same idempotent contract.
+_blacksmith_forgejo_create_milestone() {
+  local title="$1" owner repo raw mid
+  [[ -n "$title" ]] || { _blacksmith_die "create_milestone: title required"; return 1; }
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/milestones?state=all&limit=100") \
+    || { _blacksmith_die "create_milestone (forgejo): cannot list milestones"; return 1; }
+  mid=$(printf '%s' "$raw" | jq -r --arg t "$title" 'map(select(.title==$t)) | .[0].id // empty')
+  if [[ -z "$mid" ]]; then
+    raw=$(_blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/milestones" \
+          "$(jq -nc --arg t "$title" '{title:$t}')") \
+      || { _blacksmith_die "create_milestone (forgejo): create failed for '$title'"; return 1; }
+    mid=$(printf '%s' "$raw" | jq -er '.id') \
+      || { _blacksmith_die "create_milestone (forgejo): no id in create response"; return 1; }
+  fi
+  printf '%s' "$mid"
 }
 
 # --- Dependency write (Forgejo native blocked-by) ---------------------------

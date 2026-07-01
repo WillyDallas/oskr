@@ -46,6 +46,9 @@ if [[ "$args" == *addProjectV2ItemById* ]]; then
   printf '%s' '{"data":{"addProjectV2ItemById":{"item":{"id":"PVTI_created"}}}}' | emit
   exit 0
 fi
+if [[ "$args" == */milestones* && "$args" == *"title="* ]]; then   # POST create milestone (opt-in)
+  emit < "${GH_SHIM_CREATE_MILESTONE_FIXTURE:-/dev/null}"; exit 0
+fi
 if [[ "$args" == *"title="* && -n "${GH_SHIM_CREATE_ISSUE_FIXTURE:-}" ]]; then
   emit < "$GH_SHIM_CREATE_ISSUE_FIXTURE"; exit 0
 fi
