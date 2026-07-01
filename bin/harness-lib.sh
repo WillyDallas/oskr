@@ -154,6 +154,7 @@ blacksmith_list_children()     { _blacksmith_dispatch list_children "$@"; }
 blacksmith_set_milestone()     { _blacksmith_dispatch set_milestone "$@"; }
 blacksmith_add_dep()           { _blacksmith_dispatch add_dep "$@"; }
 blacksmith_base_branch()       { _blacksmith_dispatch base_branch "$@"; }
+blacksmith_count_issues()      { _blacksmith_dispatch count_issues "$@"; }
 blacksmith_provision_board()   { _blacksmith_dispatch provision_board "$@"; }
 blacksmith_remote_exists()     { _blacksmith_dispatch remote_exists "$@"; }
 
@@ -856,6 +857,20 @@ _blacksmith_github_base_branch() {
     ab=$(_blacksmith_area_branch_from_body "$body"); [[ -n "$ab" ]] && { printf '%s' "$ab"; return 0; }
   fi
   printf '%s' "$default"
+}
+
+# --- Existing-issue detection (adopt consent gate; #27 T6) ------------------
+# Echo the count of EXISTING issues on the configured repo (open+closed). Pull
+# requests are EXCLUDED — GitHub's REST issues list interleaves PRs. The adopt
+# consent gate reads this: >0 => prompt full-vs-register; 0 => no prompt. Single
+# page (per_page=100) is sufficient for the >0-vs-0 gate. Never fails the caller
+# (echo 0 on any error) so the gate degrades to "no existing".
+_blacksmith_github_count_issues() {
+  local owner repo
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  gh api "repos/${owner}/${repo}/issues?state=all&per_page=100" \
+    --jq '[ .[] | select(has("pull_request") | not) ] | length' 2>/dev/null || echo 0
 }
 
 # ===========================================================================
