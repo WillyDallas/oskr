@@ -22,8 +22,32 @@ oskr_setup_skeleton() {
   fi
 }
 
+# Write .oskr/config.json from environment-supplied NON-SECRET values. Guarded:
+# refuses if a config already exists so re-running setup never clobbers a live
+# workspace. Credentials are NOT written here — they live in the workspace .env
+# (FORGEJO_TOKEN) / gh keychain; this records only backend selection + coords.
+#   write-config <workspace_dir>
+# Env: OSKR_FORGE (default github)  OSKR_BASE_BRANCH (default main)
+#      OSKR_GITHUB_OWNER (optional) OSKR_FORGEJO_BASE_URL (optional)
+oskr_setup_write_config() {
+  local ws="${1:-$PWD}" cfg
+  [[ -d "$ws/.oskr" ]] || _setup_die "no .oskr/ at $ws — run 'skeleton' first"
+  cfg="$ws/.oskr/config.json"
+  [[ -f "$cfg" ]] && _setup_die "workspace already configured ($cfg); not clobbering"
+  jq -n \
+    --arg forge "${OSKR_FORGE:-github}" \
+    --arg base  "${OSKR_BASE_BRANCH:-main}" \
+    --arg owner "${OSKR_GITHUB_OWNER:-}" \
+    --arg furl  "${OSKR_FORGEJO_BASE_URL:-}" \
+    '{version: 1, forge: $forge, base_branch: $base,
+      github: {owner: $owner}, forgejo: {base_url: $furl}}' > "$cfg.tmp" \
+    && mv "$cfg.tmp" "$cfg"
+  jq . "$cfg" >/dev/null || _setup_die "wrote malformed config"
+}
+
 cmd="${1:-}"; [[ "$#" -gt 0 ]] && shift
 case "$cmd" in
-  skeleton) oskr_setup_skeleton "$@" ;;
-  *)        _setup_die "usage: oskr-setup.sh {skeleton} [workspace_dir]" ;;
+  skeleton)     oskr_setup_skeleton "$@" ;;
+  write-config) oskr_setup_write_config "$@" ;;
+  *)            _setup_die "usage: oskr-setup.sh {skeleton|write-config} [workspace_dir]" ;;
 esac
