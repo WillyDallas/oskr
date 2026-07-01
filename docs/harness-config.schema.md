@@ -67,3 +67,20 @@ paths, and per-project context.
 - The harness is opinionated about the 9-phase workflow shape and the
   two human gates; it is flexible about display names and which
   columns the dispatcher polls.
+
+## Global config — `.oskr/config.json` (workspace tier)
+
+Written once by `/oskr-setup` (`bin/oskr-setup.sh`); read as the **lower-precedence**
+default layer by the two-tier resolver (project `harness-config.json` always wins).
+Holds only **non-secret** shared defaults — credentials live in the workspace `.env`
+(`FORGEJO_TOKEN`) / the `gh` keychain, never here.
+
+```jsonc
+{
+  "version": 1,
+  "forge": "github",              // default backend for new projects
+  "base_branch": "main",          // default base branch
+  "github":  { "owner": "" },     // optional default GitHub owner
+  "forgejo": { "base_url": "" }   // optional default Forgejo base URL
+}
+```
