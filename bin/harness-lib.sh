@@ -165,20 +165,26 @@ _blacksmith_normalize_slug() {
   printf '%s' "$s"
 }
 
-# Canonical slug → default display name
+# Canonical slug → default display name (8-column scheme; #27 T5).
 _blacksmith_default_name_for_slug() {
   case "$1" in
-    backlog)     echo "Backlog" ;;
-    research)    echo "Research" ;;
-    needs_input) echo "Needs Input" ;;
-    planning)    echo "Planning" ;;
-    approval)    echo "Approval" ;;
-    ready)       echo "Ready" ;;
-    in_progress) echo "In Progress" ;;
-    in_review)   echo "In Review" ;;
-    done)        echo "Done" ;;
-    *)           return 1 ;;
+    backlog)       echo "Backlog" ;;
+    scoping)       echo "Scoping" ;;
+    planning)      echo "Planning" ;;
+    plan_approval) echo "Plan Approval" ;;
+    ready)         echo "Ready" ;;
+    in_progress)   echo "In Progress" ;;
+    in_review)     echo "In Review" ;;
+    done)          echo "Done" ;;
+    *)             return 1 ;;
   esac
+}
+
+# The canonical board columns in board order — the SINGLE source of truth that kills
+# the provisioning-vs-runtime column drift (#52). Provisioning maps each slug to its
+# display name via _blacksmith_default_name_for_slug.
+_blacksmith_board_column_slugs() {
+  printf '%s\n' backlog scoping planning plan_approval ready in_progress in_review done
 }
 
 # Echoes the display name to look up in a backend's column representation.
