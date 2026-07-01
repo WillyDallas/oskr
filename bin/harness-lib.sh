@@ -161,6 +161,10 @@ blacksmith_remote_exists()     { _blacksmith_dispatch remote_exists "$@"; }
 # Board provisioning (init / setup; #27 T5). Routes through the seam like every op.
 blacksmith_provision_status_columns() { _blacksmith_dispatch provision_status_columns "$@"; }
 
+# Adopt full re-intake (#27 T7): harvest read + Epoch milestone materialization.
+blacksmith_list_issues()       { _blacksmith_dispatch list_issues "$@"; }
+blacksmith_create_milestone()  { _blacksmith_dispatch create_milestone "$@"; }
+
 # --- column-vocabulary helpers (forge-agnostic) ----------------------------
 
 _blacksmith_normalize_slug() {
@@ -731,6 +735,23 @@ _blacksmith_github_read_deps() {
     } ]'
 }
 
+# --- Issue harvest (adopt full-migration; #27) ------------------------------
+
+# Echo ALL repo issues (open + closed; pull requests excluded) as the neutral
+# array [ { number, title, state, body, labels:[name] } ]. The off-board backlog
+# source the adopt harvest reconciles. Native REST list, paginated to 100.
+#   list_issues
+_blacksmith_github_list_issues() {
+  local owner repo raw
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/issues?state=all&per_page=100" 2>/dev/null) \
+    || { _blacksmith_die "list_issues query failed for ${owner}/${repo}"; return 1; }
+  printf '%s' "$raw" | jq -c '[ .[]
+    | select(has("pull_request") | not)
+    | { number, title, state, body: (.body // ""), labels: [ (.labels // [])[] | .name ] } ]'
+}
+
 # --- Issue creation (native; #26 slice 3) ----------------------------------
 
 # Create an issue and add it to the configured Project v2 board. Echoes the
@@ -914,6 +935,17 @@ _blacksmith_forgejo_read_deps() {
       repository: (.repository.full_name // ""),
       url: .html_url
     } ]'
+}
+
+# Forgejo harvest: same neutral shape. `type=issues` excludes PRs server-side.
+_blacksmith_forgejo_list_issues() {
+  local owner repo raw
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues?type=issues&state=all&limit=100") \
+    || { _blacksmith_die "list_issues (forgejo) query failed"; return 1; }
+  printf '%s' "$raw" | jq -c '[ .[]
+    | { number, title, state, body: (.body // ""), labels: [ (.labels // [])[] | .name ] } ]'
 }
 
 # Probe whether owner/repo exists on the Forgejo instance. Returns 0 if it

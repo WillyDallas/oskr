@@ -1,0 +1,5 @@
+[
+  { "number": 12, "title": "Fix login redirect", "state": "open",   "body": "Users bounce to /",  "labels": [ { "name": "bug" } ] },
+  { "number": 8,  "title": "CSV export",         "state": "closed", "body": "shipped last sprint", "labels": [] },
+  { "number": 5,  "title": "Refactor auth",      "state": "open",   "body": "PR not an issue",    "pull_request": { "url": "x" }, "labels": [] }
+]
