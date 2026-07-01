@@ -314,7 +314,39 @@ gh issue close "$TEST_ISSUE" --reason "not planned"
 echo "Smoke test passed. Board provisioning verified end-to-end."
 ```
 
-If smoke fails, surface the exact failure to the developer. The most likely culprits: Status field options don't match `harness-lib`'s expectations (Path 1 vs Path 2 mismatch), or `harness-config.json` has a wrong field.
+If smoke fails, surface the exact failure to the developer. The most likely culprits: the provisioned Status field options don't match `harness-lib`'s expectations, or the verb fell back to a `Phase` field but `harness-config.json` still resolves against `Status` (set `workflow.status_field_name` to `$STATUS_FIELD_NAME`).
+
+## Phase 9.5: Enable & verify "Auto-add to project" (manual — UI-only)
+
+A fresh Projects v2 board ships with the "Auto-add to project" workflow OFF, and the
+GitHub API cannot enable it. Seed issues will NOT land on the board until you flip it.
+Instruct the developer, then verify with a probe — never assume.
+
+1. Instruct:
+   > Open `<PROJECT_URL>`, then the project's `…` menu → **Workflows** →
+   > **Auto-add to project**. Enable it, set the filter to `is:issue`, target this repo
+   > (`$OWNER/$REPO`), and Save. Tell me when done.
+
+2. Verify with a probe issue, checking placement through the board-ops seam:
+   ```bash
+   source "$CLAUDE_PLUGIN_ROOT/bin/harness-lib.sh"
+   PROBE=$(gh issue create --repo "$OWNER/$REPO" \
+     --title "oskr auto-add probe (safe to close)" \
+     --body "Verifying the Auto-add workflow places new issues on the board." \
+     | grep -oE '[0-9]+$')
+   sleep 3
+   if [[ -n "$(blacksmith_find_item "$PROBE")" ]]; then
+     echo "Auto-add VERIFIED: issue #$PROBE landed on the board."
+   else
+     echo "Auto-add NOT working: issue #$PROBE is not on the board — re-check the toggle."
+   fi
+   gh issue close "$PROBE" --reason "not planned" --repo "$OWNER/$REPO"
+   ```
+
+3. If verification fails, repeat step 1 until the probe lands. Only after Auto-add is
+   verified may Phase 10 rely on it for seed issues. (If the developer opts to skip the
+   toggle, create seed issues with `blacksmith_create_issue` in Phase 10 — it both
+   creates the issue and adds it to the board — instead of relying on auto-add.)
 
 ## Phase 10: Ingest requirements doc (optional, only if path provided)
 
@@ -330,9 +362,11 @@ If `REQUIREMENTS_PATH` was provided in Phase 1:
    ```
    And set Category via project field mutation (see field IDs captured in Phase 4d).
 
-4. Place each issue in Backlog (default; new issues auto-add to the linked project, so this is automatic unless you want a different starting column).
+4. Place each issue in Backlog. With Auto-add verified in Phase 9.5, new issues land on
+   the board automatically. If Auto-add was skipped, create each seed issue via
+   `blacksmith_create_issue` (creates + adds to the board) rather than bare `gh issue create`.
 
-5. After ingestion, summarize: "Created N issues. They're all in Backlog. Move any to Research when you want investigation to start (`gh issue edit` or use the daily-standup skill once ported)."
+5. After ingestion, summarize: "Created N issues. They're all in Backlog. Move any to Scoping when you want investigation to start (`gh issue edit` or use the daily-standup skill once ported)."
 
 ## Phase 11: Final summary
 
@@ -343,12 +377,12 @@ Print a closing block:
 > - Project board: `<PROJECT_URL>`
 > - Local path: `$CWD`
 > - Registered in: `<workspace>/.oskr/registry.json`
-> - Status field strategy: `<Path 1 / Path 2>`
+> - Status field: `$STATUS_FIELD_NAME` (augmented `Status`, or `Phase` fallback)
 > - Seed issues created: N
 >
 > Next steps:
 > - Edit `CLAUDE.md` to fill in the project description and type-check command
-> - Move any seed issue to Research when ready: `gh issue edit <N> ...` or via daily-standup (once that skill ships)
+> - Move any seed issue to Scoping when ready: `gh issue edit <N> ...` or via daily-standup (once that skill ships)
 > - To run the dispatcher against this project: `cd $CWD && oskr dispatch` (not yet implemented — tracked in oskr roadmap)
 
 ## Key Rules
