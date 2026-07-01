@@ -76,4 +76,7 @@ fi
 if [[ "$args" == *"repo view"* ]]; then         # remote_exists probe: rc 0 = exists, non-zero = absent
   exit "${GH_SHIM_REPO_VIEW_RC:-0}"
 fi
+if [[ "$args" == *"/issues/"* && -n "${GH_SHIM_ISSUE_FIXTURE:-}" ]]; then   # GET/PATCH single issue (opt-in)
+  emit < "$GH_SHIM_ISSUE_FIXTURE"; exit 0
+fi
 emit < "$GH_SHIM_FIXTURE"
