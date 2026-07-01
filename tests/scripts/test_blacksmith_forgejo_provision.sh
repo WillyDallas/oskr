@@ -24,6 +24,23 @@ L1="$SHIM_DIR/ok.log"; : > "$L1"
 run "$L1" "$FIX/forgejo-repo-deps-on.json" "blacksmith_provision_board" \
   || { echo "FAIL: provision_board returned nonzero with the deps unit enabled" >&2; exit 1; }
 
+# every label POST carries exclusive:true (single-select / server-enforced eviction).
+grep -qF '"exclusive":true' "$L1" \
+  || { echo "FAIL: labels not created with exclusive:true" >&2; exit 1; }
+# all 8 reshaped status columns are provisioned (the 8-col scheme).
+for s in backlog scoping planning plan_approval ready in_progress in_review done; do
+  grep -qF "\"name\":\"status/$s\"" "$L1" \
+    || { echo "FAIL: status/$s column not provisioned" >&2; exit 1; }
+done
+# priority / size / category taxonomy (spot-check one slug per scope).
+grep -qF '"name":"priority/p1"'      "$L1" || { echo "FAIL: priority taxonomy missing" >&2; exit 1; }
+grep -qF '"name":"size/xs"'          "$L1" || { echo "FAIL: size taxonomy missing"     >&2; exit 1; }
+grep -qF '"name":"category/feature"' "$L1" || { echo "FAIL: category taxonomy missing" >&2; exit 1; }
+# retired 9-col slugs must NOT be provisioned (this is the reshaped 8, not the legacy 9).
+if grep -qF '"name":"status/research"' "$L1" || grep -qF '"name":"status/needs_input"' "$L1"; then
+  echo "FAIL: a retired 9-col status slug was provisioned" >&2; exit 1
+fi
+
 # --- deps unit DISABLED: provision FAILS LOUDLY before touching labels ----------
 L2="$SHIM_DIR/off.log"; : > "$L2"
 if run "$L2" "$FIX/forgejo-repo-deps-off.json" "blacksmith_provision_board" 2>"$SHIM_DIR/off.err"; then
