@@ -11,6 +11,9 @@ source "$SCRIPT_DIR/lib/assert.sh"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 BIN="$TMP/bin"; mkdir -p "$BIN"
 cp "$REPO_ROOT/bin/adopt-register.sh" "$BIN/adopt-register.sh"
+# adopt-register.sh delegates config emission to its sibling init-lib.sh (the
+# canonical emitter) — copy it alongside so $SCRIPT_DIR resolution finds it.
+cp "$REPO_ROOT/bin/init-lib.sh" "$BIN/init-lib.sh"
 
 # registry.sh stub (#27 T2's CLI) — logs its argv, succeeds. (Used by Task 5.)
 REGLOG="$TMP/registry.log"; : > "$REGLOG"
@@ -45,10 +48,12 @@ assert_eq "acme"        "$(jq -r '.github.owner' "$CFG")"   "register-only write
 assert_eq "story-spark" "$(jq -r '.github.repo' "$CFG")"    "register-only writes repo"   || exit 1
 assert_eq "7"           "$(jq -r '.github.project_number' "$CFG")" "register-only writes project_number" || exit 1
 
-# 8-column default (NOT the retired gen-eval-9col scheme; #27 T5/#52 reshape).
-assert_eq "gen-eval-8col" "$(jq -r '.workflow.kind' "$CFG")" "register-only writes 8-col workflow kind" || exit 1
+# Canonical workflow block (delegated to init_emit_config, T5's source of truth):
+# kind stays the stable "gen-eval-9col" token while actionable_columns carries the
+# live 8-column dispatcher set. Register-only must match a fresh init exactly.
+assert_eq "gen-eval-9col" "$(jq -r '.workflow.kind' "$CFG")" "register-only writes canonical workflow kind" || exit 1
 jq -e '.workflow.actionable_columns | any(. == "research" or . == "needs_input" or . == "approval")' "$CFG" >/dev/null \
-  && { echo "FAIL: stale 9-col slug in actionable_columns" >&2; exit 1; } || true
+  && { echo "FAIL: retired 9-col slug in actionable_columns" >&2; exit 1; } || true
 
 # --- Case B: no-clobber (config already emitted by T4) ---------------------
 SENT="$TMP/proj2"; mkdir -p "$SENT"
@@ -79,6 +84,6 @@ PATH="$BIN:$PATH" "$BIN/adopt-register.sh" \
   --path "$FJ" --base-url https://git.squirrlylabs.dev
 assert_eq "forgejo"                       "$(jq -r '.forge' "$FJ/harness-config.json")"            "forgejo forge"   || exit 1
 assert_eq "https://git.squirrlylabs.dev"  "$(jq -r '.forgejo.base_url' "$FJ/harness-config.json")" "forgejo base_url" || exit 1
-assert_eq "gen-eval-8col"                 "$(jq -r '.workflow.kind' "$FJ/harness-config.json")"    "forgejo 8-col"   || exit 1
+assert_eq "gen-eval-9col"                 "$(jq -r '.workflow.kind' "$FJ/harness-config.json")"    "forgejo canonical kind" || exit 1
 
 echo "test_adopt_register: PASS"
