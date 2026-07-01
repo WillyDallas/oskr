@@ -32,9 +32,11 @@ init_detect_mode() {
 #   forge=forgejo : a=base_url b=owner c=repo
 # Echoes a complete harness-config.json on stdout, carrying the `forge`
 # discriminator and EXACTLY the matching per-backend block. Pure jq; no network.
-# NOTE (slice boundary): workflow.kind / actionable_columns intentionally match the
-# current 9-col fixtures so this round-trips today; the 8-col reshape (T5) changes
-# these defaults HERE in one place. project_number defaults to 0 pre-provisioning.
+# NOTE: workflow.actionable_columns carries the live 8-column dispatcher set
+# (scoping/planning/ready) — the T5/#60 reshape landed here, the one place that
+# feeds every freshly-init'd config. workflow.kind stays "gen-eval-9col" (no code
+# reads its value; renaming it is deferred per #60's deliberate non-change).
+# project_number defaults to 0 pre-provisioning.
 init_emit_config() {
   local forge="${1:-github}" name="$2" tech="${3:-}" base="${4:-main}"
   local a="${5:-}" b="${6:-}" c="${7:-}" backend
@@ -58,7 +60,7 @@ init_emit_config() {
           workflow: {
             kind: "gen-eval-9col",
             column_names: {},
-            actionable_columns: ["needs_input", "approval", "ready", "in_review"]
+            actionable_columns: ["scoping", "planning", "ready"]
           },
           paths: {plans: "docs/plans", research: "docs/research", plan_archive: "docs/_local_archive"},
           agent_context: {project_name: $name, tech_stack: $tech},

@@ -1,6 +1,6 @@
 ---
 name: init
-description: Interactive bootstrap for a new oskr-managed project. Creates the GitHub repo (private), provisions a Projects v2 board with oskr's 9-column / Priority+Size+Category schema, writes harness-config.json, registers the project in oskr's local registry, and optionally ingests a requirements markdown doc into seed issues. Run from inside the directory where the new consumer repo should live.
+description: Interactive bootstrap for a new oskr-managed project. Creates the GitHub repo (private), provisions a Projects v2 board with oskr's 8-column / Priority+Size+Category schema, writes harness-config.json, registers the project in oskr's local registry, and optionally ingests a requirements markdown doc into seed issues. Run from inside the directory where the new consumer repo should live.
 argument-hint: "(no arguments — interactive)"
 allowed-tools: Bash(gh *) Bash(git *) Bash(mkdir *) Bash(touch *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(source "$CLAUDE_PLUGIN_ROOT/bin/*.sh") Bash(registry.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) Read Write Edit
 ---
@@ -98,7 +98,7 @@ git remote add origin "https://github.com/$OWNER/$REPO.git"
 
 ## Phase 4: Provision the GitHub Project v2 board
 
-This is the most fragile step. Three sub-steps: create project, add it to repo's project list, augment the Status field with oskr's 9 columns, create Priority/Size/Category custom fields.
+This is the most fragile step. Three sub-steps: create project, add it to repo's project list, augment the Status field with oskr's 8 columns, create Priority/Size/Category custom fields.
 
 ### Step 4a: Create the project
 
@@ -138,92 +138,29 @@ gh api graphql -f query='
 ' -f projectId="$PROJECT_ID" -f repoId="$REPO_NODE_ID"
 ```
 
-### Step 4c: Configure the Status field — try Path 1, fall back to Path 2
+### Step 4c: Provision the Status columns (through the board-ops seam)
 
-The default Status field has 3 options (Todo, In Progress, Done). oskr needs 9 columns: Backlog, Research, Needs Input, Planning, Approval, Ready, In Progress, In Review, Done.
-
-**Path 1 (preferred): augment the existing Status field.** Try updating its options to the full 9-column set.
+The default Status field has 3 options (Todo, In Progress, Done). oskr needs the 8
+columns: Backlog, Scoping, Planning, Plan Approval, Ready, In Progress, In Review, Done.
+Provisioning routes through the blacksmith verb so the column set has one source of truth
+(no inline 9-col mutation drift — oskr#52).
 
 ```bash
-STATUS_FIELD_ID=$(gh api graphql -f query='
-  query($projectId: ID!) {
-    node(id: $projectId) {
-      ... on ProjectV2 {
-        fields(first: 50) {
-          nodes {
-            ... on ProjectV2SingleSelectField { id name }
-          }
-        }
-      }
-    }
-  }
-' -f projectId="$PROJECT_ID" --jq '.data.node.fields.nodes[] | select(.name == "Status") | .id')
+source "$CLAUDE_PLUGIN_ROOT/bin/harness-lib.sh"
 
-# Try updateProjectV2Field with new options
-STATUS_UPDATE=$(gh api graphql -f query='
-  mutation($fieldId: ID!) {
-    updateProjectV2Field(input: {
-      fieldId: $fieldId,
-      singleSelectOptions: [
-        { name: "Backlog", color: GRAY, description: "Not yet planned" },
-        { name: "Research", color: BLUE, description: "Investigation in progress" },
-        { name: "Needs Input", color: ORANGE, description: "Waiting on developer Q&A" },
-        { name: "Planning", color: PURPLE, description: "Plan being drafted" },
-        { name: "Approval", color: YELLOW, description: "Waiting on developer plan review" },
-        { name: "Ready", color: GREEN, description: "Plan approved, ready to execute" },
-        { name: "In Progress", color: BLUE, description: "Implementation in flight" },
-        { name: "In Review", color: PURPLE, description: "PR open, awaiting human merge" },
-        { name: "Done", color: GREEN, description: "Shipped" }
-      ]
-    }) {
-      projectV2Field { ... on ProjectV2SingleSelectField { id name options { name } } }
-    }
-  }
-' -f fieldId="$STATUS_FIELD_ID" 2>&1)
-
-if echo "$STATUS_UPDATE" | grep -q '"errors"'; then
-  echo "Path 1 (augment Status) failed:"
-  echo "$STATUS_UPDATE" | jq -r '.errors[]?.message // .message // .'
-  STATUS_PATH_TAKEN="phase"
-else
-  STATUS_PATH_TAKEN="status"
-  echo "Path 1 succeeded — Status field augmented with 9 columns."
-fi
+# Augments the existing Status field in place; falls back to a separate "Phase" field.
+# Echoes the resulting status field name ("Status" or "Phase").
+STATUS_FIELD_NAME=$(blacksmith_provision_status_columns "$PROJECT_ID")
+echo "Status columns provisioned (field: $STATUS_FIELD_NAME)."
 ```
 
-**Path 2 (fallback): create a "Phase" single-select field with the 9 columns; leave the default Status alone.**
+If it could neither augment Status nor create Phase, the verb exits non-zero — stop and
+surface the failure; do not proceed to Phase 5.
 
-If Path 1 failed:
-```bash
-if [[ "$STATUS_PATH_TAKEN" == "phase" ]]; then
-  gh api graphql -f query='
-    mutation($projectId: ID!) {
-      createProjectV2Field(input: {
-        projectId: $projectId,
-        dataType: SINGLE_SELECT,
-        name: "Phase",
-        singleSelectOptions: [
-          { name: "Backlog", color: GRAY, description: "Not yet planned" },
-          { name: "Research", color: BLUE, description: "Investigation in progress" },
-          { name: "Needs Input", color: ORANGE, description: "Waiting on developer Q&A" },
-          { name: "Planning", color: PURPLE, description: "Plan being drafted" },
-          { name: "Approval", color: YELLOW, description: "Waiting on developer plan review" },
-          { name: "Ready", color: GREEN, description: "Plan approved, ready to execute" },
-          { name: "In Progress", color: BLUE, description: "Implementation in flight" },
-          { name: "In Review", color: PURPLE, description: "PR open, awaiting human merge" },
-          { name: "Done", color: GREEN, description: "Shipped" }
-        ]
-      }) {
-        projectV2Field { ... on ProjectV2SingleSelectField { id name } }
-      }
-    }
-  ' -f projectId="$PROJECT_ID"
-  echo "Path 2 succeeded — new 'Phase' field created. Default Status field left untouched."
-  echo "harness-config.json will need workflow.status_field_name: Phase"
-fi
-```
-
-Capture `STATUS_PATH_TAKEN` for later — it determines what goes in `harness-config.json`'s workflow section.
+If `STATUS_FIELD_NAME` is not `Status` (the in-place augment failed and the verb created a
+separate `Phase` field), add `"status_field_name": "$STATUS_FIELD_NAME"` to the `workflow`
+block of `harness-config.json` after Phase 5, so the harness resolves columns against the
+right field.
 
 ### Step 4d: Create Priority, Size, Category custom fields
 
@@ -284,7 +221,9 @@ gh api graphql -f query='
 ## Phase 5: Write harness-config.json
 
 Emit the config through the init writer — it stamps the `forge` discriminator and
-the matching backend block. (`init-lib.sh` was sourced in Phase 0.)
+the matching backend block. (`init-lib.sh` was sourced in Phase 0.) The writer emits the
+live 8-column dispatcher set — `"actionable_columns": ["scoping", "planning", "ready"]`
+(sourced from `bin/init-lib.sh`, the one place that feeds every freshly-init'd config).
 
 ```bash
 if [[ "${FORGE:-github}" == "forgejo" ]]; then
@@ -370,7 +309,7 @@ echo "Created smoke issue #$TEST_ISSUE"
 ITEM_ID=$(find-item.sh "$TEST_ISSUE")
 [[ -n "$ITEM_ID" ]] && echo "find-item.sh OK: $ITEM_ID" || { echo "FAIL: find-item.sh returned nothing"; exit 1; }
 
-move-issue.sh "$ITEM_ID" "Research" && echo "move-issue.sh OK: moved to Research"
+move-issue.sh "$ITEM_ID" "Scoping" && echo "move-issue.sh OK: moved to Scoping"
 gh issue close "$TEST_ISSUE" --reason "not planned"
 echo "Smoke test passed. Board provisioning verified end-to-end."
 ```
