@@ -29,4 +29,23 @@ assert_eq "2" "$(gh_count "$FIX/gh-issues-list.json")"  "github count excludes P
 # GitHub: empty list -> 0 (the empty-repo adopt path: no prompt).
 assert_eq "0" "$(gh_count "$FIX/gh-issues-empty.json")" "github count empty -> 0"   || exit 1
 
+# --- Forgejo (curl-shim) ---------------------------------------------------
+CSHIM_DIR=$(mktemp -d); trap 'rm -rf "$SHIM_DIR" "$CACHE_DIR" "$CSHIM_DIR"' EXIT
+cp "$SCRIPT_DIR/lib/curl-shim.sh" "$CSHIM_DIR/curl"; chmod +x "$CSHIM_DIR/curl"
+CLOG="$CSHIM_DIR/curl.log"; : > "$CLOG"
+
+fj_count() {
+  PATH="$CSHIM_DIR:$PATH" \
+    HARNESS_CONFIG="$FIX/harness-config.forgejo.json" \
+    FORGEJO_TOKEN="test-token" \
+    CURL_SHIM_CALL_LOG="$CLOG" \
+    CURL_SHIM_LIST_FIXTURE="$1" \
+    bash -c "source '$LIB'; blacksmith_count_issues"
+}
+
+# Forgejo: the 2-issue list fixture -> 2.
+assert_eq "2" "$(fj_count "$FIX/forgejo-issues-list.json")" "forgejo count -> 2" || exit 1
+# Forgejo: no list fixture -> shim returns [] -> 0.
+assert_eq "0" "$(fj_count "")"                              "forgejo count empty -> 0" || exit 1
+
 echo "test_blacksmith_count_issues: PASS"

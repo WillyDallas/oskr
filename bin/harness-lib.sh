@@ -1253,3 +1253,14 @@ _blacksmith_forgejo_base_branch() {
   fi
   printf '%s' "$default"
 }
+
+# Echo the count of EXISTING issues (adopt consent gate; #27 T6). Forgejo's
+# ?type=issues already excludes PRs. Never fails the caller (echo 0 on error).
+_blacksmith_forgejo_count_issues() {
+  local owner repo raw
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues?state=all&type=issues&limit=50") \
+    || { echo 0; return 0; }
+  printf '%s' "$raw" | jq 'length' 2>/dev/null || echo 0
+}
