@@ -161,6 +161,10 @@ blacksmith_remote_exists()     { _blacksmith_dispatch remote_exists "$@"; }
 # Board provisioning (init / setup; #27 T5). Routes through the seam like every op.
 blacksmith_provision_status_columns() { _blacksmith_dispatch provision_status_columns "$@"; }
 
+# Adopt full re-intake (#27 T7): harvest read + Epoch milestone materialization.
+blacksmith_list_issues()       { _blacksmith_dispatch list_issues "$@"; }
+blacksmith_create_milestone()  { _blacksmith_dispatch create_milestone "$@"; }
+
 # --- column-vocabulary helpers (forge-agnostic) ----------------------------
 
 _blacksmith_normalize_slug() {
@@ -731,6 +735,23 @@ _blacksmith_github_read_deps() {
     } ]'
 }
 
+# --- Issue harvest (adopt full-migration; #27) ------------------------------
+
+# Echo ALL repo issues (open + closed; pull requests excluded) as the neutral
+# array [ { number, title, state, body, labels:[name] } ]. The off-board backlog
+# source the adopt harvest reconciles. Native REST list, paginated to 100.
+#   list_issues
+_blacksmith_github_list_issues() {
+  local owner repo raw
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/issues?state=all&per_page=100" 2>/dev/null) \
+    || { _blacksmith_die "list_issues query failed for ${owner}/${repo}"; return 1; }
+  printf '%s' "$raw" | jq -c '[ .[]
+    | select(has("pull_request") | not)
+    | { number, title, state, body: (.body // ""), labels: [ (.labels // [])[] | .name ] } ]'
+}
+
 # --- Issue creation (native; #26 slice 3) ----------------------------------
 
 # Create an issue and add it to the configured Project v2 board. Echoes the
@@ -814,6 +835,27 @@ _blacksmith_github_set_milestone() {
     || { _blacksmith_die "set_milestone: milestone '$title' not found (create it first)"; return 1; }
   gh api "repos/${owner}/${repo}/issues/${issue}" -X PATCH -F milestone="$number" >/dev/null 2>&1 \
     || { _blacksmith_die "set_milestone: failed to set #$issue -> '$title'"; return 1; }
+}
+
+# Find-or-create a milestone by TITLE; echo its number. Idempotent: returns the
+# existing milestone's number if present, else POSTs a new open milestone. Adopt
+# re-emit uses this to materialize the Epoch (set_milestone only RESOLVES one).
+#   create_milestone <title>
+_blacksmith_github_create_milestone() {
+  local title="$1" owner repo raw number
+  [[ -n "$title" ]] || { _blacksmith_die "create_milestone: title required"; return 1; }
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/milestones?state=all&per_page=100" 2>/dev/null) \
+    || { _blacksmith_die "create_milestone: cannot list milestones"; return 1; }
+  number=$(printf '%s' "$raw" | jq -r --arg t "$title" 'map(select(.title==$t)) | .[0].number // empty')
+  if [[ -z "$number" ]]; then
+    raw=$(gh api "repos/${owner}/${repo}/milestones" -f title="$title" 2>/dev/null) \
+      || { _blacksmith_die "create_milestone: create failed for '$title'"; return 1; }
+    number=$(printf '%s' "$raw" | jq -er '.number') \
+      || { _blacksmith_die "create_milestone: no number in create response"; return 1; }
+  fi
+  printf '%s' "$number"
 }
 
 # --- Dependency write (native blocked-by edge) ------------------------------
@@ -914,6 +956,17 @@ _blacksmith_forgejo_read_deps() {
       repository: (.repository.full_name // ""),
       url: .html_url
     } ]'
+}
+
+# Forgejo harvest: same neutral shape. `type=issues` excludes PRs server-side.
+_blacksmith_forgejo_list_issues() {
+  local owner repo raw
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues?type=issues&state=all&limit=100") \
+    || { _blacksmith_die "list_issues (forgejo) query failed"; return 1; }
+  printf '%s' "$raw" | jq -c '[ .[]
+    | { number, title, state, body: (.body // ""), labels: [ (.labels // [])[] | .name ] } ]'
 }
 
 # Probe whether owner/repo exists on the Forgejo instance. Returns 0 if it
@@ -1220,6 +1273,25 @@ _blacksmith_forgejo_set_milestone() {
   _blacksmith_forgejo_curl PATCH "/repos/${owner}/${repo}/issues/${issue}" \
     "$(jq -nc --argjson m "$mid" '{milestone: $m}')" >/dev/null \
     || { _blacksmith_die "set_milestone (forgejo): failed to set #$issue -> '$title'"; return 1; }
+}
+
+# Forgejo find-or-create milestone by TITLE; echo its id. Same idempotent contract.
+_blacksmith_forgejo_create_milestone() {
+  local title="$1" owner repo raw mid
+  [[ -n "$title" ]] || { _blacksmith_die "create_milestone: title required"; return 1; }
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/milestones?state=all&limit=100") \
+    || { _blacksmith_die "create_milestone (forgejo): cannot list milestones"; return 1; }
+  mid=$(printf '%s' "$raw" | jq -r --arg t "$title" 'map(select(.title==$t)) | .[0].id // empty')
+  if [[ -z "$mid" ]]; then
+    raw=$(_blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/milestones" \
+          "$(jq -nc --arg t "$title" '{title:$t}')") \
+      || { _blacksmith_die "create_milestone (forgejo): create failed for '$title'"; return 1; }
+    mid=$(printf '%s' "$raw" | jq -er '.id') \
+      || { _blacksmith_die "create_milestone (forgejo): no id in create response"; return 1; }
+  fi
+  printf '%s' "$mid"
 }
 
 # --- Dependency write (Forgejo native blocked-by) ---------------------------

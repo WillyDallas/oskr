@@ -46,6 +46,9 @@ if [[ "$args" == *addProjectV2ItemById* ]]; then
   printf '%s' '{"data":{"addProjectV2ItemById":{"item":{"id":"PVTI_created"}}}}' | emit
   exit 0
 fi
+if [[ "$args" == */milestones* && "$args" == *"title="* ]]; then   # POST create milestone (opt-in)
+  emit < "${GH_SHIM_CREATE_MILESTONE_FIXTURE:-/dev/null}"; exit 0
+fi
 if [[ "$args" == *"title="* && -n "${GH_SHIM_CREATE_ISSUE_FIXTURE:-}" ]]; then
   emit < "$GH_SHIM_CREATE_ISSUE_FIXTURE"; exit 0
 fi
@@ -72,5 +75,8 @@ if [[ "$args" == *dependencies/blocked_by* && "$args" == *issue_id=* ]]; then  #
 fi
 if [[ "$args" == *"repo view"* ]]; then         # remote_exists probe: rc 0 = exists, non-zero = absent
   exit "${GH_SHIM_REPO_VIEW_RC:-0}"
+fi
+if [[ "$args" == *"/issues/"* && -n "${GH_SHIM_ISSUE_FIXTURE:-}" ]]; then   # GET/PATCH single issue (opt-in)
+  emit < "$GH_SHIM_ISSUE_FIXTURE"; exit 0
 fi
 emit < "$GH_SHIM_FIXTURE"
