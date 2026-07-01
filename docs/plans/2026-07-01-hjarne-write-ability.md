@@ -1,7 +1,7 @@
 # hjarne Write Seam + `/hjarne integrate` (T2) Implementation Plan
 
 **Goal:** Ship the pure-filesystem `hjarne_*` write seam in a NEW `bin/hjarne-lib.sh`, wire it into `bin/harness-lib.sh` via an exit-status-neutral tail block, and wrap it in a thin `skills/hjarne/SKILL.md` (`/hjarne integrate` + drain).
-**Architecture:** `hjarne_*` helpers are forge-blind, `set -euo pipefail`-safe filesystem functions that assume `blacksmith_workspace_dir` / `_blacksmith_die` are in scope (provided by `harness-lib.sh`, which tail-sources this file). One derivation `hjarne_raw_path` feeds both the raw write and the `[[ -e ]]` dedup gate; `hjarne_integrate` orchestrates archive→route→write→log; `hjarne_inbox_stage`/`hjarne_inbox_drain` add the deferred repo-side path. The skill owns judgement (distill + note-unique provenance), the helpers own bytes.
+**Architecture:** `hjarne_*` helpers are forge-blind, `set -euo pipefail`-safe filesystem functions that assume `blacksmith_workspace_dir` / `_blacksmith_die` are in scope (provided by `harness-lib.sh`, which tail-sources this file). One derivation `hjarne_raw_path` feeds both the raw write and the `[[ -e ]]` dedup gate; `hjarne_integrate` orchestrates archive→route→write→log when a brain exists, and falls back to `hjarne_inbox_stage` when no brain resolves — never dropping the note, never auto-creating the brain; `hjarne_inbox_stage`/`hjarne_inbox_drain` add the deferred repo-side path. The skill owns judgement (distill + note-unique provenance), the helpers own bytes.
 **Tech Stack:** Pure bash (bash 3.2 / macOS-safe: no `${var,,}`, no assoc arrays, no `mapfile`), `sed`/`grep`/`shasum`, Markdown. Tests use `tests/scripts/run-tests.sh` auto-discovery + `lib/assert.sh`. No new deps.
 **Issue:** #70 (T2, child of the brain-hjarne Area)
 
@@ -28,6 +28,7 @@ If it does not print `GATE_OK`, the upstream work has not landed. **Resolve via 
 
 - **Testing tier:** unit / hermetic seam. Each test stamps `bin/hjarne-skeleton.sh "$WS/hjarne"` into an `mktemp` workspace (`.oskr/` present + `OSKR_WORKSPACE` set), sources `bin/harness-lib.sh` **and** `bin/hjarne-lib.sh`, exercises the REAL resolver (no stub, no shim, forge-blind), asserts file-state.
 - **Why source BOTH libs:** the §6C tail-wire lands in a *later* task (Task 10). Sourcing `harness-lib.sh` (for `blacksmith_workspace_dir`) plus `hjarne-lib.sh` (unit under test) decouples every helper test from wire ordering. After Task 10 `harness-lib.sh` also tail-sources `hjarne-lib.sh`; the second explicit `source` is a harmless redefinition.
+- **Brain-optional contract (restored — the drifted #70 AC "nothing dropped or double-homed"):** *no brain resolves* means `hjarne_resolve_brain` fails (no workspace) **OR** the resolved `hjarne/` dir does not exist. In that case `hjarne_integrate` stages the note to the inbox (`HJARNE_INBOX_DIR`, default `docs/brain-inbox/`) via `hjarne_inbox_stage` and returns 0 — **nothing dropped, brain never auto-created, nothing double-homed** (the brain write path is skipped entirely). The brain is optional, never a hard dependency (row M10).
 - **TDD substitution (harness-infra form: write-AC → grep/structural → implement, NO RED unit test) applies to EXACTLY three tasks:** Task 10 (tail-wire — its regression IS the §6C sourcing test, which still runs RED→GREEN), Task 11 (`skills/hjarne/SKILL.md` — semantic quality dogfooded, not hermetically tested), Task 12 (version bump). Every other task is **true RED-first**.
 - **No Playwright** — no web/UI/navigation/auth surface (pure shell + prose skill). Exemption deliberate.
 - **No design/quality-rule ACs** — the repo declares no `.claude/rules/` (verified). No-op axis.
@@ -44,10 +45,11 @@ If it does not print `GATE_OK`, the upstream work has not landed. **Resolve via 
 | M2 | version stamp: create `v1`; update `v2` + date refreshed | `test_hjarne_write_page.sh` | 6 |
 | M7 | `inbox_stage` writes the `<!-- hjarne:meta … -->` fence | `test_hjarne_inbox.sh` | 7 |
 | M5, M6, M9 | integrate routes/dedups; two distinct provenances both land | `test_hjarne_integrate.sh` | 8 |
+| M10 | no brain resolves → integrate stages to inbox (nothing dropped, brain not auto-created, not double-homed, idempotent) | `test_hjarne_integrate.sh` | 8 |
 | M8 | drain integrates + removes; dup still removes; 2nd drain no-op | `test_hjarne_inbox.sh` (extended) | 9 |
 | §6C | tail-wire present→exposes fn; absent→sources cleanly | `test_hjarne_lib_wire.sh` | 10 |
 
-The frozen deliverables enumerate exactly **8 test files**. Two "extra" helpers (`route`, `inbox_drain`) share a file with a sibling (`test_hjarne_raw_path.sh`, `test_hjarne_inbox.sh`) — fixture reuse; each still gets a genuine committed RED→GREEN assertion.
+The frozen deliverables enumerate exactly **8 test files**. Two "extra" helpers (`route`, `inbox_drain`) share a file with a sibling (`test_hjarne_raw_path.sh`, `test_hjarne_inbox.sh`) — fixture reuse; each still gets a genuine committed RED→GREEN assertion. M10 is an added assertion block inside the existing `test_hjarne_integrate.sh` (no new file).
 
 ---
 
@@ -60,7 +62,7 @@ GATE (#54 + T1 merged)
                         ├─ T5 log_append
                         ├─ T6 write_page
                         └─ T7 inbox_stage
-T8 integrate  ← {T1,T2,T3,T4,T5,T6,T7}
+T8 integrate  ← {T1,T2,T3,T4,T5,T6,T7}   (inbox_stage is the no-brain fallback)
 T9 inbox_drain ← {T8 integrate, T7 fence format}
 T10 tail-wire ← {T1 (bin/hjarne-lib.sh exists)}   [TDD-sub: §6C regression]
 T11 SKILL.md  ← {T8, T9}                           [TDD-sub: dogfooded]
@@ -456,7 +458,9 @@ echo "test_hjarne_inbox: PASS"
 ```bash
 # Stage a note into an inbox dir with a hjarne:meta fence carrying provenance +
 # subdir (drain parses this to reconstruct the integrate call). Resolver-free by
-# design: this runs repo-side before a brain may exist. Echoes the staged path.
+# design: this runs repo-side before a brain may exist. Filename is the same
+# provenance-keyed slug+hash as raw_path, so a re-stage of one provenance
+# overwrites its own file (idempotent). Echoes the staged path.
 # hjarne_inbox_stage <inbox-dir> <provenance> <content> [subdir]
 hjarne_inbox_stage() {
   local inbox="$1" provenance="$2" content="$3" subdir="${4:-}"
@@ -480,15 +484,16 @@ hjarne_inbox_stage() {
 
 ---
 
-## Task 8: `hjarne_integrate` — orchestrator + dedup gate (M5, M6, M9)
+## Task 8: `hjarne_integrate` — orchestrator + dedup gate + no-brain inbox fallback (M5, M6, M9, M10)
 
-**Depends on:** Tasks 1–7 — `{resolve_brain, raw_path, route, archive_raw, log_append, write_page, inbox_stage}` (per frozen §5). Calls all except `inbox_stage` (listed as a sibling that must exist first).
+**Depends on:** Tasks 1–7 — `{resolve_brain, raw_path, route, archive_raw, log_append, write_page, inbox_stage}` (per frozen §5). Calls all seven: the **brain-present** path uses `{raw_path, archive_raw, route, write_page, log_append}`; the **no-brain fallback** uses `hjarne_inbox_stage`. Signature is UNCHANGED — `hjarne_integrate <provenance> <system> <content> [subdir]` — so T3/T4 code against it verbatim; the inbox target is routed through the `HJARNE_INBOX_DIR` env default (`docs/brain-inbox/`), NOT a new positional param.
 
 **Files:** Modify `bin/hjarne-lib.sh` (append `hjarne_integrate`); Test `tests/scripts/test_hjarne_integrate.sh`.
 
 **Acceptance Criteria:**
-- [ ] `Run: bash tests/scripts/test_hjarne_integrate.sh` → `Expected: exit 0` (prints `test_hjarne_integrate: PASS`; M5+M6+M9)
+- [ ] `Run: bash tests/scripts/test_hjarne_integrate.sh` → `Expected: exit 0` (prints `test_hjarne_integrate: PASS`; M5+M6+M9+M10)
 - [ ] `Run: grep -qF 'hjarne_integrate()' bin/hjarne-lib.sh` → `Expected: exit 0`
+- [ ] `Run: grep -qF 'HJARNE_INBOX_DIR' bin/hjarne-lib.sh` → `Expected: exit 0` (env-default inbox target — the no-brain fallback is wired; M10)
 
 **Step 1: Write the failing test** — `tests/scripts/test_hjarne_integrate.sh` = STANDARD FIXTURE then:
 ```bash
@@ -524,20 +529,62 @@ test -f "$(hjarne_raw_path '#72:find-item')"  || { echo "FAIL: M9 find-item raw 
 test -f "$(hjarne_raw_path '#72:move-issue')" || { echo "FAIL: M9 move-issue raw missing" >&2; exit 1; }
 [[ "$(entries)" -eq "$((E0 + 2))" ]] || { echo "FAIL: M9 expected 2 new log entries" >&2; exit 1; }
 
+# ---------------------------------------------------------------------------
+# M10: NO brain resolves → integrate STAGES to the inbox — nothing dropped, the
+# brain is NOT auto-created (optional, never a hard dependency), the note is not
+# double-homed (skips the brain write path entirely), and a re-integrate stays
+# idempotent (inbox_stage is provenance-keyed). Uses a SEPARATE workspace whose
+# hjarne/ was never stamped, so hjarne_resolve_brain succeeds but the brain dir
+# is absent — the `[[ ! -d "$brain" ]]` fallback branch.
+# ---------------------------------------------------------------------------
+WS2=$(cd "$(mktemp -d)" && pwd)              # a workspace whose hjarne/ is NOT stamped
+trap 'rm -rf "$WS" "$WS2"' EXIT              # extend cleanup (fixture trap only had $WS)
+mkdir -p "$WS2/.oskr"
+export OSKR_WORKSPACE="$WS2"
+export HJARNE_INBOX_DIR="$WS2/brain-inbox"   # override the repo-side default via env
+C2=$'# Move Issue\n\nMoves a card between columns.'
+inbox_files() { find "$HJARNE_INBOX_DIR" -maxdepth 1 -name '*.md' 2>/dev/null | grep -c . || true; }
+
+# brain dir absent → integrate stages to the inbox and returns 0 (nothing dropped)
+hjarne_integrate '#80:move-issue' move-issue "$C2"
+[[ "$(inbox_files)" -eq 1 ]] || { echo "FAIL: M10 no-brain integrate did not stage exactly one inbox note" >&2; exit 1; }
+STAGED=$(find "$HJARNE_INBOX_DIR" -maxdepth 1 -name '*.md')
+grep -qF 'Moves a card between columns.' "$STAGED" || { echo "FAIL: M10 staged note missing content" >&2; exit 1; }
+grep -qF '<!-- hjarne:meta provenance=#80:move-issue' "$STAGED" || { echo "FAIL: M10 staged note missing hjarne:meta fence" >&2; exit 1; }
+
+# brain NOT auto-created, and nothing double-homed (no page under an absent brain)
+! test -e "$WS2/hjarne" || { echo "FAIL: M10 integrate auto-created the brain" >&2; exit 1; }
+! test -e "$WS2/hjarne/wiki/move-issue.md" || { echo "FAIL: M10 note double-homed into a brain page" >&2; exit 1; }
+
+# idempotent: same provenance → same inbox filename → still exactly one note
+hjarne_integrate '#80:move-issue' move-issue "$C2"
+[[ "$(inbox_files)" -eq 1 ]] || { echo "FAIL: M10 re-integrate not idempotent (expected exactly one inbox note)" >&2; exit 1; }
+
 echo "test_hjarne_integrate: PASS"
 ```
 
-**Step 2: Run test to verify it fails** — Run: `bash tests/scripts/test_hjarne_integrate.sh`. Expected: FAIL — `hjarne_integrate` undefined; the first call aborts under `set -e` (no `PASS`).
+**Step 2: Run test to verify it fails** — Run: `bash tests/scripts/test_hjarne_integrate.sh`. Expected: FAIL — `hjarne_integrate` undefined; the first call aborts under `set -e` (no `PASS`). (M10 also requires the function; the whole file is RED until Step 3.)
 
 **Step 3: Write minimal implementation** — append to `bin/hjarne-lib.sh`:
 ```bash
-# Orchestrate an integrate: dedup-gate on the raw path (§6A), else archive the raw
-# note, route + version-stamp the wiki page, and log a dated entry. A same-provenance
-# re-integrate short-circuits (return 0) before any write — 1 raw, 1 log, no v-bump.
+# Orchestrate an integrate. When NO brain resolves — hjarne_resolve_brain fails
+# (no workspace) OR the resolved hjarne/ dir does not exist — stage the note to
+# the inbox (HJARNE_INBOX_DIR, default docs/brain-inbox/) and return 0: nothing
+# dropped, brain NEVER auto-created, nothing double-homed (the brain write path
+# is skipped entirely). Otherwise dedup-gate on the raw path (§6A), else archive
+# the raw note, route + version-stamp the wiki page, and log a dated entry. A
+# same-provenance re-integrate short-circuits (return 0) before any write.
+# Signature is fixed (T3/T4 code against it); the inbox target is an env default,
+# NOT a positional arg.
 # hjarne_integrate <provenance> <system-slug> <content> [subdir]
 hjarne_integrate() {
   local provenance="$1" system="$2" content="$3" subdir="${4:-}"
-  local raw page
+  local brain raw page inbox="${HJARNE_INBOX_DIR:-docs/brain-inbox}"
+  # No brain resolves (no workspace) OR brain dir absent → stage to inbox.
+  if ! brain=$(hjarne_resolve_brain 2>/dev/null) || [[ ! -d "$brain" ]]; then
+    hjarne_inbox_stage "$inbox" "$provenance" "$content" "$subdir" >/dev/null || return 1
+    return 0
+  fi
   raw=$(hjarne_raw_path "$provenance" "$subdir") || return 1
   [[ -e "$raw" ]] && return 0   # dedup: same provenance already filed
   hjarne_archive_raw "$provenance" "$content" "$subdir" >/dev/null || return 1
@@ -549,7 +596,7 @@ hjarne_integrate() {
 
 **Step 4: Run test to verify it passes** — Run: `bash tests/scripts/test_hjarne_integrate.sh`. Expected: PASS.
 
-**Step 5: Commit** — `git add bin/hjarne-lib.sh tests/scripts/test_hjarne_integrate.sh && git commit -m "feat(hjarne): integrate orchestrator + dedup gate (#70)"`
+**Step 5: Commit** — `git add bin/hjarne-lib.sh tests/scripts/test_hjarne_integrate.sh && git commit -m "feat(hjarne): integrate orchestrator + dedup gate + no-brain inbox fallback (#70)"`
 
 ---
 
@@ -679,6 +726,7 @@ if [[ -r "$_HJARNE_LIB" ]]; then source "$_HJARNE_LIB"; fi
 - [ ] `Run: grep -qF '<issue-or-pr-ref>:<system-slug>' skills/hjarne/SKILL.md` → `Expected: exit 0` (provenance contract)
 - [ ] `Run: grep -qF '#70:board-dispatcher' skills/hjarne/SKILL.md` → `Expected: exit 0` (worked example, NOT a bare `#70`)
 - [ ] `Run: grep -qF 'docs/brain-inbox' skills/hjarne/SKILL.md` → `Expected: exit 0` (inbox call site)
+- [ ] `Run: grep -qiF 'never drop' skills/hjarne/SKILL.md` → `Expected: exit 0` (no-brain fallback stated: integrate stages to the inbox, never drops; M10 contract)
 - [ ] `Run: grep -qiF 'clean-up' skills/hjarne/SKILL.md` → `Expected: exit 0` (states the contract T3 must honor)
 - [ ] `Run: grep -qiF 'schema.md' skills/hjarne/SKILL.md` → `Expected: exit 0` (distill-per-schema)
 
@@ -726,7 +774,10 @@ rather than reusing the issue ref.
    hjarne_integrate '#70:board-dispatcher' board-dispatcher "$CONTENT"   # + optional: research
    ```
    Archives the raw note, writes/updates a version-stamped `wiki/<system-slug>.md`, appends a
-   dated `log.md` entry — or no-ops if that provenance was already filed.
+   dated `log.md` entry — or no-ops if that provenance was already filed. **The brain is
+   optional:** if no brain resolves (no workspace, or the `hjarne/` dir isn't stamped yet),
+   integrate stages the note to `docs/brain-inbox/` instead and returns cleanly — the note is
+   **never dropped** and the brain is **never auto-created**. Drain it later (step 4).
 
 4. **Or drain the inbox** — when notes were staged repo-side before a brain existed. The inbox
    lives at **`docs/brain-inbox/`**. Stage with
@@ -739,13 +790,14 @@ rather than reusing the issue ref.
    as filed and still clears the file.
 
 **Done when:** the note resolves to a version-stamped `wiki/<system-slug>.md`, its raw bytes sit
-under `raw/` (or `raw/research/`), and `log.md` has the dated entry — or the call
-dedup-short-circuited because that provenance was already filed.
+under `raw/` (or `raw/research/`), and `log.md` has the dated entry — or, when no brain resolved,
+it sits in `docs/brain-inbox/` awaiting a drain — or the call dedup-short-circuited because that
+provenance was already filed.
 ````
 
 **Step 4: Run all grep ACs to verify they pass** — Run (single line, repo root):
 ```
-grep -qE '^name: hjarne$' skills/hjarne/SKILL.md && grep -q '^description:' skills/hjarne/SKILL.md && grep -qF 'hjarne_integrate' skills/hjarne/SKILL.md && grep -qF 'hjarne_inbox_drain' skills/hjarne/SKILL.md && grep -qF '<issue-or-pr-ref>:<system-slug>' skills/hjarne/SKILL.md && grep -qF '#70:board-dispatcher' skills/hjarne/SKILL.md && grep -qF 'docs/brain-inbox' skills/hjarne/SKILL.md && grep -qiF 'clean-up' skills/hjarne/SKILL.md && grep -qiF 'schema.md' skills/hjarne/SKILL.md && echo SKILL_AC_PASS
+grep -qE '^name: hjarne$' skills/hjarne/SKILL.md && grep -q '^description:' skills/hjarne/SKILL.md && grep -qF 'hjarne_integrate' skills/hjarne/SKILL.md && grep -qF 'hjarne_inbox_drain' skills/hjarne/SKILL.md && grep -qF '<issue-or-pr-ref>:<system-slug>' skills/hjarne/SKILL.md && grep -qF '#70:board-dispatcher' skills/hjarne/SKILL.md && grep -qF 'docs/brain-inbox' skills/hjarne/SKILL.md && grep -qiF 'never drop' skills/hjarne/SKILL.md && grep -qiF 'clean-up' skills/hjarne/SKILL.md && grep -qiF 'schema.md' skills/hjarne/SKILL.md && echo SKILL_AC_PASS
 ```
 Expected: prints `SKILL_AC_PASS` (exit 0).
 
@@ -774,7 +826,7 @@ Expected: prints `SKILL_AC_PASS` (exit 0).
 ```
 bash -n bin/hjarne-lib.sh && bash tests/scripts/test_hjarne_resolve_brain.sh && bash tests/scripts/test_hjarne_raw_path.sh && bash tests/scripts/test_hjarne_archive_raw.sh && bash tests/scripts/test_hjarne_log_append.sh && bash tests/scripts/test_hjarne_write_page.sh && bash tests/scripts/test_hjarne_integrate.sh && bash tests/scripts/test_hjarne_inbox.sh && bash tests/scripts/test_hjarne_lib_wire.sh && bash tests/scripts/test_backend_no_inline_gh.sh && bash tests/scripts/run-tests.sh && test "$(jq -r .version .claude-plugin/plugin.json)" != "0.3.7" && jq -r .version .claude-plugin/plugin.json | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$' && echo CONTRACT_OK
 ```
-Expected: `run-tests.sh` prints `Results: N/N passed, 0 failed` and the chain prints `CONTRACT_OK` (exit 0). This bundles the frozen §4 verification: `bash -n` → each `test_hjarne_*.sh` → wire regression (present + absent, inside `test_hjarne_lib_wire.sh`) → seam guard → full suite → version `!= baseline` + valid semver.
+Expected: `run-tests.sh` prints `Results: N/N passed, 0 failed` and the chain prints `CONTRACT_OK` (exit 0). This bundles the frozen §4 verification: `bash -n` → each `test_hjarne_*.sh` (integrate now includes the M10 no-brain inbox fallback) → wire regression (present + absent, inside `test_hjarne_lib_wire.sh`) → seam guard → full suite → version `!= baseline` + valid semver.
 
 **Step 5: Commit** — `git add .claude-plugin/plugin.json && git commit -m "chore(release): bump plugin version to 0.5.0 for hjarne write seam (#70)"`
 
