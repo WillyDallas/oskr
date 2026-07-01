@@ -58,4 +58,27 @@ PATH="$BIN:$PATH" "$BIN/adopt-register.sh" \
   --name pre --forge github --owner x --repo y --path "$SENT"
 assert_eq "$BEFORE" "$(cat "$SENT/harness-config.json")" "no-clobber preserves emitted config" || exit 1
 
+# --- Case A delegation + no-touch (script now calls registry.sh add) --------
+# registry delegated to registry.sh add with the EXACT outgoing argv this script
+# emits (pins the contract #27 T2 must satisfy; see plan cross-task note).
+grep -qF 'add'              "$REGLOG" || { echo "FAIL: registry.sh 'add' not invoked" >&2; exit 1; }
+grep -qF -- '--name story-spark' "$REGLOG" || { echo "FAIL: registry missing --name" >&2; exit 1; }
+grep -qF -- '--forge github'     "$REGLOG" || { echo "FAIL: registry missing --forge" >&2; exit 1; }
+grep -qF -- '--owner acme'       "$REGLOG" || { echo "FAIL: registry missing --owner" >&2; exit 1; }
+grep -qF -- '--repo story-spark' "$REGLOG" || { echo "FAIL: registry missing --repo" >&2; exit 1; }
+grep -qF -- '--path'             "$REGLOG" || { echo "FAIL: registry missing --path" >&2; exit 1; }
+
+# NO-TOUCH: zero forge calls across every case above.
+[[ ! -s "$GHLOG"   ]] || { echo "FAIL: register-only invoked gh (board touched)" >&2;   cat "$GHLOG"   >&2; exit 1; }
+[[ ! -s "$CURLLOG" ]] || { echo "FAIL: register-only invoked curl (board touched)" >&2; cat "$CURLLOG" >&2; exit 1; }
+
+# --- Case C: forgejo coords ------------------------------------------------
+FJ="$TMP/proj3"; mkdir -p "$FJ"
+PATH="$BIN:$PATH" "$BIN/adopt-register.sh" \
+  --name sluice --forge forgejo --owner squirrlylabs --repo sluice \
+  --path "$FJ" --base-url https://git.squirrlylabs.dev
+assert_eq "forgejo"                       "$(jq -r '.forge' "$FJ/harness-config.json")"            "forgejo forge"   || exit 1
+assert_eq "https://git.squirrlylabs.dev"  "$(jq -r '.forgejo.base_url' "$FJ/harness-config.json")" "forgejo base_url" || exit 1
+assert_eq "gen-eval-8col"                 "$(jq -r '.workflow.kind' "$FJ/harness-config.json")"    "forgejo 8-col"   || exit 1
+
 echo "test_adopt_register: PASS"
