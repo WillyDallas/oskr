@@ -42,4 +42,21 @@ if "$REPO_ROOT/bin/adopt-reemit.sh" /no/such/plan.json 2>/dev/null; then
   echo "FAIL: missing plan file must exit non-zero" >&2; exit 1
 fi
 
+# ---- Task arm: slim issues, linked beneath umbrellas, delivery/manual, no move ----
+grep -qF 'title=Registration form' "$LOG" || { echo "FAIL: task 'Registration form' not created" >&2; exit 1; }
+grep -qF 'title=Triage rules'       "$LOG" || { echo "FAIL: task 'Triage rules' not created" >&2; exit 1; }
+grep -qF 'title=Invoice model'      "$LOG" || { echo "FAIL: task 'Invoice model' not created" >&2; exit 1; }
+grep -qF 'labels[]=delivery/manual' "$LOG" || { echo "FAIL: task missing delivery/manual" >&2; exit 1; }
+grep -qF 'label create delivery/manual' "$LOG" || { echo "FAIL: delivery/manual not ensured" >&2; exit 1; }
+# Slim body contract
+grep -qF '## Parent' "$LOG" || { echo "FAIL: task body missing ## Parent" >&2; exit 1; }
+grep -qF '## What'   "$LOG" || { echo "FAIL: task body missing ## What" >&2; exit 1; }
+grep -qF '## AC'     "$LOG" || { echo "FAIL: task body missing ## AC" >&2; exit 1; }
+if grep -qF 'touches:' "$LOG"; then echo "FAIL: re-emitted task carries forbidden touches:" >&2; exit 1; fi
+# Linked beneath the umbrella (native sub-issue; child DB id 9001 from gh-issue-single.json)
+grep -qF 'sub_issues'       "$LOG" || { echo "FAIL: tasks not linked under umbrellas" >&2; exit 1; }
+grep -qF 'sub_issue_id=9001' "$LOG" || { echo "FAIL: link did not use child DB id" >&2; exit 1; }
+# Dispatch off: NO Status move into an actionable column
+if grep -qF 'updateProjectV2ItemFieldValue' "$LOG"; then echo "FAIL: re-emit moved an issue (dispatch must be off)" >&2; exit 1; fi
+
 echo "test_adopt_reemit (umbrellas): PASS"

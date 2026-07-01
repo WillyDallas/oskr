@@ -35,4 +35,17 @@ for (( ai = 0; ai < area_count; ai++ )); do
   umbrella=$(blacksmith_create_issue "$atitle" "$abody" "type/umbrella,area/${slug}" | jq -er '.number') \
     || { echo "[adopt-reemit] failed to create umbrella for $slug" >&2; exit 1; }
   blacksmith_set_milestone "$umbrella" "$epoch"
+
+  task_count=$(jq ".areas[$ai].tasks | length" "$plan")
+  for (( ti = 0; ti < task_count; ti++ )); do
+    ttitle=$(jq -er ".areas[$ai].tasks[$ti].title" "$plan")
+    twhat=$(jq -r  ".areas[$ai].tasks[$ti].what"  "$plan")
+    tac=$(jq -r    ".areas[$ai].tasks[$ti].ac"    "$plan")
+    # Slim body: ## Parent / ## What / ## AC only — no touches:, no TDD-ACs.
+    tbody=$(printf '## Parent\n#%s\n\n## What\n\n%s\n\n## AC\n\n%s\n' "$umbrella" "$twhat" "$tac")
+    child=$(blacksmith_create_issue "$ttitle" "$tbody" "delivery/manual,area/${slug}" | jq -er '.number') \
+      || { echo "[adopt-reemit] failed to create task '$ttitle'" >&2; exit 1; }
+    blacksmith_set_milestone "$child" "$epoch"
+    blacksmith_link_parent "$umbrella" "$child"
+  done
 done
