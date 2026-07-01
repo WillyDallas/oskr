@@ -54,7 +54,7 @@ The dominant term is `reviewers_per_child` (3 lenses + 1 synth = 60% of planning
 - [x] `planning-session` reviewer fan-out is **conditional** (escalate; don't always run 3 lenses + synth). — 0.3.7
 - [x] `decompose` documents a right-sizing heuristic / soft cap on children. — 0.3.7
 - [x] `planning-session`, `decompose`, and `research` each document a default agent/reviewer budget. — 0.3.7
-- [ ] A re-run on a comparable Area is measured here at a **materially lower** token cost than the 2.96M baseline, with **no drop** in caught-defect rate.
+- [x] A re-run on a comparable Area is measured here at a **materially lower** token cost than the 2.96M baseline, with **no drop** in caught-defect rate. — Area #28 (2026-07-01): ≈295k/child (vs 329k), 0 panel escalations, +1 defect caught by cross-task review.
 
 ## Datapoints
 
@@ -62,4 +62,6 @@ The dominant term is `reviewers_per_child` (3 lenses + 1 synth = 60% of planning
 |---|---|---|---|---|---|
 | 2026-06-30 | #27 | 9 | 2,960,407 | 48 | 3-lens panel + synth + 1 revise (baseline) |
 | _target_ | — | ~6 | **~1.1M** | — | single reviewer, escalate-on-≠PASS (0.3.7); panel rare |
-| _(pending)_ | — | — | — | — | validation re-run on a comparable Area |
+| 2026-07-01 | #28 | 4 | 1,181,277 | 22 | single reviewer, **0 panel escalations**; scoping REVISE→iter2 ×4; +1 fast-path revise (T2). ≈295k/child · 5.5 agents/child |
+
+**Validation (Area #28, 4 children): ≈1.18M tokens / 22 agents, ≈295k/child vs the 2.96M baseline's 329k/child (~−10%/child), and the always-on panel is gone — 0 of 4 execution reviews escalated (the clean path held).** Caught-defect rate did **not** drop: the single execution reviewers *ran* the ACs (extracting and executing helper bodies), and adversarial **cross-task** review caught a real defect the in-task 100/100 review missed — T2's `hjarne_integrate` violated its own "no brain → stage to inbox" AC (dropped notes / auto-created the brain); fixed via a fast-path revision (+2 agents). The residual cost driver is now the mandatory scoping→REVISE→iter2 cycle on every child (lever #3: collapse the two planner rounds).
