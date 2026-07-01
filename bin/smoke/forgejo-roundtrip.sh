@@ -4,8 +4,10 @@
 # blacksmith verbs (so it exercises forge dispatch, not the impls directly).
 #
 # NOT part of the hermetic CI suite: it needs network, a PAT, and a throwaway repo
-# whose exclusive status/* labels are already provisioned (the manual setup step,
-# owned by #27). Each run leaves a few test issues behind — delete the repo to reset.
+# whose board is provisioned by `blacksmith_provision_board` (run below). That verb is
+# curl-shim-proven hermetically in #27; THIS live round-trip against a real Forgejo is
+# its acceptance gate and is deferred to Area 5. Each run leaves a few test issues
+# behind — delete the repo to reset.
 #
 # Run:
 #   set -a; . ~/WillyDev/squirrlylabs/.env; set +a   # loads FORGEJO_TOKEN
@@ -37,6 +39,9 @@ eq(){ [[ "$1" == "$2" ]] || no "$3 (expected '$1', got '$2')"; ok "$3"; }
 
 echo "blacksmith Forgejo live smoke -> $OWNER/$REPO @ $BASE"
 eq forgejo "$(_blacksmith_forge)" "dispatch = forgejo"
+
+blacksmith_provision_board && ok "board provisioned (8 status + taxonomy, exclusive labels)" \
+  || no "blacksmith_provision_board failed"
 
 p=$(jq -r '.number'  <<<"$(blacksmith_create_issue 'smoke parent'  'umbrella')")
 c1=$(jq -r '.number' <<<"$(blacksmith_create_issue 'smoke child 1' 'child')")
