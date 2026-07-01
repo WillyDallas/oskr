@@ -39,16 +39,23 @@ CFG="$TARGET/harness-config.json"
 # Otherwise delegate to init_emit_config (the canonical emitter) so register-only
 # writes the SAME shape as a fresh init — kind, actionable_columns, paths, etc.
 # all sourced from T5's one source of truth (no second copy to drift).
+#
+# Atomic write: emit to a temp, validate it, then mv into place. A failed or
+# interrupted emit must leave NO harness-config.json — otherwise the no-clobber
+# check (keyed on file existence) would skip that poisoned 0-byte file on a retry
+# and the registry delegation below would register against an unreadable config.
 if [[ ! -f "$CFG" ]]; then
+  tmp="$CFG.tmp.$$"
   if [[ "$FORGE" == "forgejo" ]]; then
     [[ -n "$BASE_URL" ]] || { echo "adopt-register: --base-url required for forgejo" >&2; exit 2; }
-    init_emit_config forgejo "$NAME" "" main "$BASE_URL" "$OWNER" "$REPO" > "$CFG" \
-      || { echo "adopt-register: config emit failed" >&2; exit 1; }
+    init_emit_config forgejo "$NAME" "" main "$BASE_URL" "$OWNER" "$REPO" > "$tmp" \
+      || { rm -f "$tmp"; echo "adopt-register: config emit failed" >&2; exit 1; }
   else
-    init_emit_config github "$NAME" "" main "$OWNER" "$REPO" "${PROJECT_NUMBER:-0}" > "$CFG" \
-      || { echo "adopt-register: config emit failed" >&2; exit 1; }
+    init_emit_config github "$NAME" "" main "$OWNER" "$REPO" "${PROJECT_NUMBER:-0}" > "$tmp" \
+      || { rm -f "$tmp"; echo "adopt-register: config emit failed" >&2; exit 1; }
   fi
-  jq . "$CFG" >/dev/null || { echo "adopt-register: wrote malformed config" >&2; exit 1; }
+  jq . "$tmp" >/dev/null 2>&1 || { rm -f "$tmp"; echo "adopt-register: wrote malformed config" >&2; exit 1; }
+  mv "$tmp" "$CFG"
 fi
 
 # Registry entry — delegated to the canonical registry CLI (#27 T2). No inline

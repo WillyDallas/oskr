@@ -271,7 +271,7 @@ repo already has a workflow and asks the developer how to proceed.
    [ -n "$PROJECT_NUMBER" ] && EXTRA+=(--project-number "$PROJECT_NUMBER")
    [ -n "$BASE_URL" ]       && EXTRA+=(--base-url "$BASE_URL")
    adopt-register.sh --name "$NAME" --forge "$FORGE" \
-     --owner "$OWNER" --repo "$REPO" --path "$CWD" "${EXTRA[@]}"
+     --owner "$OWNER" --repo "$REPO" --path "$CWD" "${EXTRA[@]+"${EXTRA[@]}"}"
    ```
    This writes `harness-config.json` (if not already emitted) + a registry entry and
    touches **nothing** on the forge — the existing board is left exactly as it was.

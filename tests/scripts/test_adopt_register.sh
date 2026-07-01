@@ -73,10 +73,6 @@ grep -qF -- '--owner acme'       "$REGLOG" || { echo "FAIL: registry missing --o
 grep -qF -- '--repo story-spark' "$REGLOG" || { echo "FAIL: registry missing --repo" >&2; exit 1; }
 grep -qF -- '--path'             "$REGLOG" || { echo "FAIL: registry missing --path" >&2; exit 1; }
 
-# NO-TOUCH: zero forge calls across every case above.
-[[ ! -s "$GHLOG"   ]] || { echo "FAIL: register-only invoked gh (board touched)" >&2;   cat "$GHLOG"   >&2; exit 1; }
-[[ ! -s "$CURLLOG" ]] || { echo "FAIL: register-only invoked curl (board touched)" >&2; cat "$CURLLOG" >&2; exit 1; }
-
 # --- Case C: forgejo coords ------------------------------------------------
 FJ="$TMP/proj3"; mkdir -p "$FJ"
 PATH="$BIN:$PATH" "$BIN/adopt-register.sh" \
@@ -85,5 +81,24 @@ PATH="$BIN:$PATH" "$BIN/adopt-register.sh" \
 assert_eq "forgejo"                       "$(jq -r '.forge' "$FJ/harness-config.json")"            "forgejo forge"   || exit 1
 assert_eq "https://git.squirrlylabs.dev"  "$(jq -r '.forgejo.base_url' "$FJ/harness-config.json")" "forgejo base_url" || exit 1
 assert_eq "gen-eval-9col"                 "$(jq -r '.workflow.kind' "$FJ/harness-config.json")"    "forgejo canonical kind" || exit 1
+
+# --- Case D: a failed emit must NOT poison a retry (atomic write) -----------
+# A non-numeric --project-number makes init_emit_config's --argjson fail AFTER an
+# output redirect would have opened the target file. adopt-register must exit
+# non-zero AND leave NO harness-config.json behind — otherwise the no-clobber
+# check (file-existence) would skip the poisoned 0-byte file on retry and register
+# the project against an unreadable config.
+POI="$TMP/proj4"; mkdir -p "$POI"
+if PATH="$BIN:$PATH" "$BIN/adopt-register.sh" \
+     --name poison --forge github --owner o --repo r --path "$POI" --project-number not-a-number 2>/dev/null; then
+  echo "FAIL: adopt-register should have failed on non-numeric --project-number" >&2; exit 1
+fi
+[[ ! -e "$POI/harness-config.json" ]] || { echo "FAIL: failed emit left a poisoned config file" >&2; exit 1; }
+
+# NO-TOUCH: zero forge calls across EVERY register-only path above — Case A
+# (github), B (no-clobber), C (forgejo), D (failed emit). Checked last so it
+# covers all four, including the forgejo register-only path AC10 implies.
+[[ ! -s "$GHLOG"   ]] || { echo "FAIL: register-only invoked gh (board touched)" >&2;   cat "$GHLOG"   >&2; exit 1; }
+[[ ! -s "$CURLLOG" ]] || { echo "FAIL: register-only invoked curl (board touched)" >&2; cat "$CURLLOG" >&2; exit 1; }
 
 echo "test_adopt_register: PASS"
