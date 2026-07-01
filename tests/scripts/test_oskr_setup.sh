@@ -52,4 +52,18 @@ assert_eq "$BEFORE" "$(cat "$WS3/.oskr/config.json")" "config not clobbered" || 
 GUARD_OUT=$("$SETUP" write-config "$TMPROOT/ws-none" 2>&1 || true)
 grep -qF "run 'skeleton' first" <<<"$GUARD_OUT" || { echo "FAIL: missing skeleton-first guard" >&2; exit 1; }
 
+# ---- bootstrap: one command yields dirs + registry + config (AC a) ----
+WS4="$TMPROOT/ws-boot"
+OSKR_FORGE=github OSKR_GITHUB_OWNER=WillyDallas OSKR_BASE_BRANCH=main \
+  "$SETUP" bootstrap "$WS4"
+for d in .oskr projects hjarne learning; do
+  test -d "$WS4/$d" || { echo "FAIL: bootstrap missing dir $d" >&2; exit 1; }
+done
+assert_eq "[]"         "$(jq -c '.projects' "$WS4/.oskr/registry.json")" "bootstrap registry" || exit 1
+assert_eq "WillyDallas" "$(jq -r .github.owner "$WS4/.oskr/config.json")" "bootstrap owner"    || exit 1
+assert_eq "github"     "$(jq -r .forge "$WS4/.oskr/config.json")"        "bootstrap forge"     || exit 1
+
+# re-bootstrap on a configured workspace refuses (guard inherited from write-config)
+if "$SETUP" bootstrap "$WS4" 2>/dev/null; then echo "FAIL: re-bootstrap did not refuse" >&2; exit 1; fi
+
 echo "test_oskr_setup skeleton: PASS"

@@ -45,9 +45,18 @@ oskr_setup_write_config() {
   jq . "$cfg" >/dev/null || _setup_die "wrote malformed config"
 }
 
+# One-shot: skeleton then write-config. The single verb the skill calls after it
+# gathers inputs.  bootstrap <workspace_dir>
+oskr_setup_bootstrap() {
+  local ws="${1:-$PWD}"
+  oskr_setup_skeleton "$ws"
+  oskr_setup_write_config "$ws"
+}
+
 cmd="${1:-}"; [[ "$#" -gt 0 ]] && shift
 case "$cmd" in
   skeleton)     oskr_setup_skeleton "$@" ;;
   write-config) oskr_setup_write_config "$@" ;;
-  *)            _setup_die "usage: oskr-setup.sh {skeleton|write-config} [workspace_dir]" ;;
+  bootstrap)    oskr_setup_bootstrap "$@" ;;
+  *)            _setup_die "usage: oskr-setup.sh {skeleton|write-config|bootstrap} [workspace_dir]" ;;
 esac
