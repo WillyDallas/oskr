@@ -2,7 +2,7 @@
 name: init
 description: Interactive bootstrap for a new oskr-managed project. Creates the GitHub repo (private), provisions a Projects v2 board with oskr's 8-column / Priority+Size+Category schema, writes harness-config.json, registers the project in oskr's local registry, and optionally ingests a requirements markdown doc into seed issues. Run from inside the directory where the new consumer repo should live.
 argument-hint: "(no arguments — interactive)"
-allowed-tools: Bash(gh *) Bash(git *) Bash(mkdir *) Bash(touch *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(source "$CLAUDE_PLUGIN_ROOT/bin/*.sh") Bash(registry.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(adopt-detect.sh*) Bash(adopt-register.sh*) Read Write Edit
+allowed-tools: Bash(gh *) Bash(git *) Bash(mkdir *) Bash(touch *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(source "$CLAUDE_PLUGIN_ROOT/bin/*.sh") Bash(registry.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(adopt-detect.sh*) Bash(adopt-register.sh*) Bash(adopt-harvest.sh*) Bash(adopt-reemit.sh*) Read Write Edit
 ---
 
 You are walking the developer through bootstrapping a new oskr-managed project. This is an interactive setup — branch based on detected state, ask only what you can't infer, and surface the impact of each step before doing it.
@@ -276,8 +276,27 @@ repo already has a workflow and asks the developer how to proceed.
    This writes `harness-config.json` (if not already emitted) + a registry entry and
    touches **nothing** on the forge — the existing board is left exactly as it was.
 
-4. **Full migration (choice 2)** — hand off to the harvest → reconcile → re-emit flow
-   (#27 T7). Out of scope for the register-only path.
+4. **Full migration (choice 2)** — run the three-step re-intake below
+   ("Adopt — full migration").
+
+### Adopt — full migration (harvest → reconcile → re-emit)
+
+When the developer chooses **full migration** at the adopt consent gate (a brownfield
+project with an off-board backlog), run the three-step re-intake. Reconcile is a
+**manual, by-hand guided** step — see `docs/adopt-reintake.md`.
+
+1. **Harvest** (scripted): `adopt-harvest.sh harvest.md` — reads every existing issue
+   into a reconciliation tasklist (pull requests excluded).
+2. **Reconcile** (manual): walk `harvest.md` with the developer per the guided
+   checklist in `docs/adopt-reintake.md`; produce `reconciled-plan.json`
+   (`epoch` + `areas[]` with slim `what`/`ac` and `tasks[]`).
+3. **Re-emit** (scripted): `adopt-reemit.sh reconciled-plan.json` — creates the Epoch
+   milestone, one `type/umbrella` + `area/<slug>` umbrella per Area, and one
+   `delivery/manual` task per task (slim `## Parent`/`## What`/`## AC`), linked beneath
+   its umbrella. The board lands **dispatch off** — review before any work starts.
+
+For a project that already runs its own board/workflow, prefer the **register-only**
+arm of the consent gate instead. The live coremyotherapy migration is Area 5.
 
 ## Phase 6: Register in the oskr workspace registry
 
