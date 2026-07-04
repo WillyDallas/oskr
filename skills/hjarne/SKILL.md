@@ -1,7 +1,7 @@
 ---
 name: hjarne
 description: File durable knowledge into the project brain — distill a note and integrate it (or drain the repo-side inbox) into hjarne's raw/wiki/log. Reach for it after research or a systems discovery, or when another skill needs to persist permanent tech/systems knowledge.
-argument-hint: "integrate | drain"
+argument-hint: "integrate | drain | register-pointer"
 allowed-tools: Bash Read Glob Grep
 ---
 
@@ -55,3 +55,32 @@ rather than reusing the issue ref.
 under `raw/` (or `raw/research/`), and `log.md` has the dated entry — or, when no brain resolved,
 it sits in `docs/brain-inbox/` awaiting a drain — or the call dedup-short-circuited because that
 provenance was already filed.
+
+## Mode: register-pointer (research auto-ingest)
+
+`research` calls `/hjarne register-pointer` right after it posts its `## Research Digest`
+comment. This mode is **L1 depth** — it deposits the digest as a raw *pointer* and logs one
+INGEST line. It does **not** distil a `wiki/` page and does **not** stage the inbox; that
+distillation stays **clean-up's** job. The digest already lives on the issue, so a no-op here
+loses nothing.
+
+Under `/hjarne`'s own unrestricted `Bash`, re-fetch the digest `research` just posted (the
+STABLE issue ref is `<topic>` — e.g. `28`, never the mutable title) and hand it to the helper
+as `<content>`:
+
+```bash
+source bin/harness-lib.sh   # tail-sources bin/hjarne-lib.sh
+# re-fetch the just-posted "## Research Digest" comment body for issue 28
+DIGEST=$(gh issue view 28 --json comments \
+  --jq '[.comments[] | select(.body | startswith("## Research Digest")) | .body] | last')
+hjarne_register_pointer '28' "$DIGEST" '28'
+```
+
+Deposits `raw/research/<topic-slug>-<date>/digest.md` and appends one
+`- <date> — INGEST raw/research/<topic-slug>-<date>/ (<ref>)` log line — or no-ops when no brain
+resolves (the digest still lives on the issue). Same topic, same day → idempotent (the digest
+byte-unchanged, no second INGEST line).
+
+**Done when:** the digest sits at `raw/research/<topic-slug>-<date>/digest.md` with one INGEST
+line in `log.md` — or the call no-opped because no brain resolved / the pointer was already filed
+today.
