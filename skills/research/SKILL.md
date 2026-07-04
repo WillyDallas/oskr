@@ -2,7 +2,7 @@
 name: research
 description: Ground a goal or issue before scoping or planning — assemble ONE cited digest from the repo and the web and post it to the issue. Reach for it from `scope`, or whenever a decision needs evidence on the table.
 argument-hint: "[issue-number | topic]"
-allowed-tools: Bash(gh *) Bash(sync-development.sh*) Read Glob Grep Agent
+allowed-tools: Bash(gh *) Bash(sync-development.sh*) Read Glob Grep Agent Skill
 ---
 
 Assemble one grounded, cited digest so the grill that follows starts informed instead of cold. This is an **ability**: `scope` runs it inline and the v2 loop runs it ahead of time — either way the output is the same durable comment.
@@ -20,6 +20,13 @@ Assemble one grounded, cited digest so the grill that follows starts informed in
 4. **Assemble ONE digest** — recommendation · key files & candidate **seams** (`file:path`) · risks · open questions · citations (URLs + `file:line`). One digest, not a transcript.
 
 5. **Post it** as a `## Research Digest` comment (`gh issue comment <n>`), and **leave the card where it is** — research never crosses a gate.
+
+6. **Register the pointer.** When a brain resolves in this workspace, invoke
+   `/hjarne register-pointer` via the **Skill** tool, passing the **STABLE issue ref** as
+   `<topic>` (e.g. `28`, never the mutable title). It re-fetches this digest and deposits it at
+   `raw/research/<topic>-<date>/digest.md` with one INGEST log line. No-op when no brain
+   resolves. `research` does **not** write `digest.md` itself and does **not** source the
+   `hjarne_*` helpers — filing the pointer is entirely `/hjarne`'s job.
 
 **Done when:** a single reviewer-checked `## Research Digest` comment covering repo + web sits on the issue (or a fresh one already did, and you reused it).
 

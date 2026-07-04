@@ -1336,3 +1336,7 @@ _blacksmith_forgejo_count_issues() {
     || { echo 0; return 0; }
   printf '%s' "$raw" | jq 'length' 2>/dev/null || echo 0
 }
+
+# --- hjarne write seam (optional sibling; tail-sourced, exit-status-neutral) ---
+_HJARNE_LIB="$(dirname "${BASH_SOURCE[0]}")/hjarne-lib.sh"
+if [[ -r "$_HJARNE_LIB" ]]; then source "$_HJARNE_LIB"; fi

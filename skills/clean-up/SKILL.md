@@ -107,10 +107,11 @@ Then spawn `reviewer` on the curator's output: every changed claim is backed by 
 
 **Brain half (permanent systems/tech knowledge).** For each `brain`-tagged item, distill it to a self-contained note, then route:
 
-- **`/hjarne` brain ability available** → hand each note to it; the brain owns the write.
-- **Brain absent (the v1 default — #28 not built)** → **stage, never drop**: append each note to `docs/brain-inbox/<YYYY-MM-DD>-<system>.md`, marked `<!-- pending migration to the brain (#28) -->`. It is committed (Phase 8) so nothing is lost. Never fold a brain note into `docs/` project docs — the boundary holds even while staged.
+Give each note a **note-unique** provenance of the shape `<issue-or-pr-ref>:<system-slug>` — the merged PR or issue ref plus the system slug (e.g. `#42:board-dispatcher`), never a bare issue ref, or a second note from the same issue silently dedups away. Hand the distilled note and that provenance to **`/hjarne integrate`**: `/hjarne` owns the write — it archives the raw note, version-stamps `wiki/<system-slug>.md`, and echoes a **returned page pointer** (the page relpath). Capture that pointer for the Phase 8 commit body. Never fold a brain note into `docs/` project docs — the boundary holds wherever `/hjarne` lands it.
 
-**Done when:** every doc-impact item is tagged `brain` or `repo` with a reason; every `repo` item is reconciled by the curator pass; every `brain` item is handed to `/hjarne` or written to `docs/brain-inbox/`; **zero items dropped or double-homed.**
+The brain-absent fallback belongs to `/hjarne`, not clean-up: if the brain isn't built yet, `/hjarne`'s own inbox fallback stages the note under `docs/brain-inbox/`. clean-up calls `/hjarne integrate` **unconditionally** and no longer writes any inbox itself.
+
+**Done when:** every doc-impact item is tagged `brain` or `repo` with a reason; every `repo` item is reconciled by the curator pass; every `brain` item is handed to `/hjarne integrate` and clean-up captures the returned page pointer; **zero items dropped or double-homed.**
 
 ## Phase 6: Archive plan files
 
@@ -138,10 +139,12 @@ Archiving removes the card from the board view only — the issue is untouched a
 
 ```bash
 git add docs/
-git commit -m "clean-up: <system>"
+git commit -m "clean-up: <system>" \
+  -m "brain notes filed (returned page pointers from /hjarne integrate):" \
+  -m "- <system-slug> → wiki/<system-slug>.md"
 ```
 
-`git add docs/` captures the curator's doc changes, the `docs/plans/` deletions, and `docs/brain-inbox/` (gitignored `docs/temp/` + `docs/_local_archive/` are excluded). **Do not push** — that stays human-gated. Finish with a short summary: issues archived, issues kept, docs touched, **brain notes written vs staged** (with the staged count pending #28), and what the next run's seed will be.
+`git add docs/` captures the curator's doc changes, the `docs/plans/` deletions, and any `docs/brain-inbox/` notes `/hjarne` staged through its own inbox fallback (gitignored `docs/temp/` + `docs/_local_archive/` are excluded). The **commit body lists each** brain note's returned page pointer — the `wiki/<system-slug>.md` relpath `/hjarne integrate` echoed. That committed, `git log`-discoverable list is the sole repo-side breadcrumb for what landed in the brain; do not create a separate committed file for it (a `logs/clean-up.log` line is fine as a local trace but does not discharge this). **Do not push** — that stays human-gated. Finish with a short summary: issues archived, issues kept, docs touched, **brain notes integrated (each with its returned page pointer)**, and what the next run's seed will be.
 
 ---
 
@@ -156,11 +159,11 @@ Every piece of knowledge the cluster surfaces routes to **exactly one** home. De
 
 **Per-task plans are always repo, always archived.** `docs/plans/<id>.md` is the ephemeral HOW (paths, TDD step order); on ship it moves to `docs/_local_archive/` (Phase 6). Never the brain — it goes stale by design.
 
-**Graceful degradation (the brain may not exist in v1):** brain-bound notes go to `/hjarne` when present, else to `docs/brain-inbox/` — committed, marked pending #28, never dropped, never mixed into project docs. When #28 lands, that inbox is the migration queue.
+**Graceful degradation lives entirely inside `/hjarne`:** clean-up always calls `/hjarne integrate` and captures the returned page pointer; if the brain isn't built yet, `/hjarne`'s own inbox fallback stages the note under `docs/brain-inbox/` (committed via Phase 8, never dropped, never mixed into project docs). clean-up itself never writes that inbox — the degradation path is `/hjarne`'s to own, and when the brain lands, that inbox is `/hjarne`'s migration queue.
 
 ## Gotchas
 
 - **`state: CLOSED` is not "shipped".** An issue can be closed `NOT_PLANNED`. For an umbrella, "shipped" means **every child closed** (the Area-branch merge model's portable signal) — not the umbrella's own state alone.
 - **Old plan files vastly outnumber clusters.** `docs/plans/` accumulates; archive only the ones linked to issues approved this run. The backlog drains over repeated runs, not one.
-- **Working artifacts vs. the record.** `docs/temp/` and `logs/` are gitignored; the committed record is the doc changes, the plan-file deletions, and `docs/brain-inbox/`. The board's archived-items view plus `logs/clean-up.log` carry the audit trail.
+- **Working artifacts vs. the record.** `docs/temp/` and `logs/` are gitignored; the committed record is the doc changes, the plan-file deletions, and any `docs/brain-inbox/` notes `/hjarne` staged as its inbox fallback. The board's archived-items view, `logs/clean-up.log`, and the Phase 8 commit body's page-pointer list carry the audit trail.
 - **Don't reach for `gh api graphql`.** Read the board through `blacksmith_list_board` and children through `list-children.sh` so the skill stays backend-neutral; use `gh` only for per-issue read/comment.
