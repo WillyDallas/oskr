@@ -1,0 +1,57 @@
+---
+name: hjarne
+description: File durable knowledge into the project brain — distill a note and integrate it (or drain the repo-side inbox) into hjarne's raw/wiki/log. Reach for it after research or a systems discovery, or when another skill needs to persist permanent tech/systems knowledge.
+argument-hint: "integrate | drain"
+allowed-tools: Bash Read Glob Grep
+---
+
+`hjarne` is the project brain (`<workspace>/hjarne`). This skill is its **write seam**:
+distil a note into a schema-shaped page, then file it through the `hjarne_*` helpers in
+`bin/hjarne-lib.sh`. The helpers are pure filesystem and forge-blind — this skill owns the
+**judgement** (what to distil, where it routes, the note-unique provenance); the helpers own
+the **bytes**.
+
+## Provenance — the dedup key (contract)
+
+Every note carries a **note-unique** provenance, supplied here at the call site, of the shape
+`<issue-or-pr-ref>:<system-slug>` — e.g. `#70:board-dispatcher`, **never** a bare `#70`. Same
+provenance → same raw path → a re-file is a no-op (dedup short-circuit). Two notes from one
+issue MUST differ in their `:<system-slug>` suffix or the second silently dedups away.
+**`clean-up` (T3) honours this exact contract** — it mints a distinct `<ref>:<system>` per note
+rather than reusing the issue ref.
+
+## Steps
+
+1. **Distil, don't dump.** Shape the note as a `wiki/` page per `templates/hjarne/schema.md`:
+   a `# <Title>` H1, BLUF first, inline citations, `[[wikilinks]]`. The helper files exactly
+   the bytes you give it — hand it the page, not a raw transcript.
+
+2. **Pick route + subdir.** `<system-slug>` is the wiki page name (`wiki/<system-slug>.md`).
+   Pass `research` as the optional subdir for evidence bundles (lands under `raw/research/`);
+   omit it for a plain systems note.
+
+3. **Integrate now** — when you hold the note:
+   ```bash
+   source bin/harness-lib.sh   # tail-sources bin/hjarne-lib.sh
+   hjarne_integrate '#70:board-dispatcher' board-dispatcher "$CONTENT"   # + optional: research
+   ```
+   Archives the raw note, writes/updates a version-stamped `wiki/<system-slug>.md`, appends a
+   dated `log.md` entry — or no-ops if that provenance was already filed. **The brain is
+   optional:** if no brain resolves (no workspace, or the `hjarne/` dir isn't stamped yet),
+   integrate stages the note to `docs/brain-inbox/` instead and returns cleanly — the note is
+   **never dropped** and the brain is **never auto-created**. Drain it later (step 4).
+
+4. **Or drain the inbox** — when notes were staged repo-side before a brain existed. The inbox
+   lives at **`docs/brain-inbox/`**. Stage with
+   `hjarne_inbox_stage docs/brain-inbox '<issue-or-pr-ref>:<system-slug>' "$CONTENT"`; later:
+   ```bash
+   source bin/harness-lib.sh
+   hjarne_inbox_drain docs/brain-inbox
+   ```
+   Drain integrates each staged note and removes its file — a dedup short-circuit still counts
+   as filed and still clears the file.
+
+**Done when:** the note resolves to a version-stamped `wiki/<system-slug>.md`, its raw bytes sit
+under `raw/` (or `raw/research/`), and `log.md` has the dated entry — or, when no brain resolved,
+it sits in `docs/brain-inbox/` awaiting a drain — or the call dedup-short-circuited because that
+provenance was already filed.
