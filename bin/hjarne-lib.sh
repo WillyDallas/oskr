@@ -161,3 +161,37 @@ hjarne_inbox_drain() {
   done
   return 0
 }
+
+# Register a research digest as an L1 pointer: deposit the digest blob under
+# raw/research/<topic-slug>-<date>/ and append ONE dated INGEST log line. It NEVER
+# routes to wiki/ and NEVER version-stamps a page — distillation is clean-up's job
+# (the digest still lives on the issue at L1 depth). No-op (return 0) when no brain
+# resolves OR the brain dir is not stamped: register-pointer NEVER inbox-stages — a
+# DELIBERATE divergence from hjarne_integrate, justified because the digest already
+# posts to the issue. Dedup gate = digest.md existence (mirrors T2's [[ -e ]] &&
+# return 0), so it is idempotent within a date (same-process).
+# hjarne_register_pointer <topic> <content> [<ref>]
+#   <topic> = STABLE issue ref (e.g. 28), never a mutable title.
+#   <ref>   = issue/PR ref cited in the INGEST line (defaults to <topic>).
+hjarne_register_pointer() {
+  local topic="$1" content="$2" ref="${3:-$1}"
+  local brain slug today dir digest
+  # No-op gate scoped to dir-absent. hjarne_resolve_brain echoes <ws>/hjarne
+  # UNCONDITIONALLY and fails only when blacksmith_workspace_dir dies; research always
+  # runs in a workspace, so the resolve-fail half is effectively unreachable — the
+  # [[ -d ]] check is the gate that actually fires.
+  brain=$(hjarne_resolve_brain 2>/dev/null) || return 0
+  [[ -d "$brain" ]] || return 0
+  # Slug transform — DELIBERATELY duplicated verbatim from hjarne_raw_path's inlined
+  # transform (also inlined in hjarne_inbox_stage). A shared helper is OUT of scope:
+  # it would edit frozen T2 code.
+  slug=$(printf '%s' "$topic" | tr '[:upper:]' '[:lower:]' \
+         | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
+  today=$(date +%F)
+  dir="$brain/raw/research/${slug}-${today}"
+  digest="$dir/digest.md"
+  [[ -e "$digest" ]] && return 0   # dedup (date-scoped); mirrors T2's [[ -e ]] && return 0
+  mkdir -p "$dir"
+  printf '%s\n' "$content" > "$digest"
+  hjarne_log_append "INGEST raw/research/${slug}-${today}/ (${ref})"
+}
