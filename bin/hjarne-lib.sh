@@ -138,3 +138,26 @@ hjarne_integrate() {
   hjarne_write_page "$page" "$content" || return 1
   hjarne_log_append "integrate $provenance → wiki/${system}.md" || return 1
 }
+
+# Drain an inbox dir: for each staged note, parse the hjarne:meta fence, integrate,
+# and remove the file on success. A dedup short-circuit counts as success (integrate
+# returns 0) and STILL clears the file. System slug = the :<slug> suffix of the
+# provenance. No nullglob (bash 3.2): the [[ -e ]] guard skips an unexpanded glob.
+# hjarne_inbox_drain <inbox-dir>
+hjarne_inbox_drain() {
+  local inbox="$1" file meta provenance subdir system content
+  [[ -d "$inbox" ]] || return 0
+  for file in "$inbox"/*.md; do
+    [[ -e "$file" ]] || continue
+    meta=$(grep -m1 '^<!-- hjarne:meta ' "$file" 2>/dev/null || true)
+    [[ -n "$meta" ]] || continue
+    provenance=$(printf '%s' "$meta" | sed -nE 's/.*provenance=([^[:space:]]+).*/\1/p')
+    subdir=$(printf '%s' "$meta" | sed -nE 's/.*subdir=([^[:space:]]*).*/\1/p')
+    system="${provenance##*:}"
+    content=$(tail -n +2 "$file")
+    if hjarne_integrate "$provenance" "$system" "$content" "$subdir"; then
+      rm -f "$file"
+    fi
+  done
+  return 0
+}
