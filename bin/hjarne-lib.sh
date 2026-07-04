@@ -42,3 +42,14 @@ hjarne_route() {
   brain=$(hjarne_resolve_brain) || return 1
   echo "$brain/wiki/${system}.md"
 }
+
+# Write content to hjarne_raw_path (creating parent dirs), echo the path.
+# hjarne_archive_raw <provenance> <content> [subdir]
+hjarne_archive_raw() {
+  local provenance="$1" content="$2" subdir="${3:-}"
+  local path
+  path=$(hjarne_raw_path "$provenance" "$subdir") || return 1
+  mkdir -p "$(dirname "$path")"
+  printf '%s\n' "$content" > "$path"
+  echo "$path"
+}
