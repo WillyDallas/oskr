@@ -32,4 +32,8 @@ case "$P1" in "$BRAIN/raw/"*-*.md) : ;; *) echo "FAIL: raw_path shape ($P1)" >&2
 P5=$(hjarne_raw_path '#70:deep-dive' research)
 case "$P5" in "$BRAIN/raw/research/"*-*.md) : ;; *) echo "FAIL: subdir shape ($P5)" >&2; exit 1 ;; esac
 
+# hjarne_route: <brain>/wiki/<system-slug>.md (unit; also co-covered by integrate M6)
+R=$(hjarne_route board-dispatcher)
+assert_eq "$BRAIN/wiki/board-dispatcher.md" "$R" "route → wiki/<system>.md"
+
 echo "test_hjarne_raw_path: PASS"

@@ -34,3 +34,11 @@ hjarne_raw_path() {
   [[ -n "$subdir" ]] && dir="$dir/$subdir"
   echo "$dir/${slug}-${hash}.md"
 }
+
+# Echo the wiki page path for a system slug: <brain>/wiki/<system-slug>.md.
+# hjarne_route <system-slug>
+hjarne_route() {
+  local system="$1" brain
+  brain=$(hjarne_resolve_brain) || return 1
+  echo "$brain/wiki/${system}.md"
+}
