@@ -65,3 +65,29 @@ hjarne_log_append() {
   [[ -f "$logfile" && -n "$(tail -c1 "$logfile")" ]] && printf '\n' >> "$logfile"
   printf -- '- %s — %s\n' "$(date +%F)" "$message" >> "$logfile"
 }
+
+# Write/update a page, enforcing the version stamp (§6B): a blockquote on line 2
+# under the `# <Title>` H1. Create → v1 + today; update → read existing v<N>, write
+# v<N+1> and refresh the date to today. Content's first line is the H1 title.
+# hjarne_write_page <page-path> <content>
+hjarne_write_page() {
+  local path="$1" content="$2"
+  local today n stampline title body
+  today=$(date +%F)
+  if [[ -f "$path" ]]; then
+    stampline=$(grep -m1 -E '^> Written [0-9]{4}-[0-9]{2}-[0-9]{2} .* v[0-9]+' "$path" 2>/dev/null || true)
+    n=$(printf '%s' "$stampline" | grep -oE 'v[0-9]+' | tail -1 | tr -d 'v')
+    [[ -n "$n" ]] || n=0
+    n=$((n + 1))
+  else
+    n=1
+  fi
+  mkdir -p "$(dirname "$path")"
+  title=$(printf '%s\n' "$content" | head -1)
+  body=$(printf '%s\n' "$content" | tail -n +2)
+  {
+    printf '%s\n' "$title"
+    printf '> Written %s · v%s\n' "$today" "$n"
+    printf '%s\n' "$body"
+  } > "$path"
+}
