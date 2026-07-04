@@ -53,3 +53,15 @@ hjarne_archive_raw() {
   printf '%s\n' "$content" > "$path"
   echo "$path"
 }
+
+# Append a dated bullet to <brain>/log.md, preserving prior content. The newline
+# guard keeps the entry on its own line even if the file lacks a trailing newline.
+# hjarne_log_append <message>
+hjarne_log_append() {
+  local message="$1" brain logfile
+  brain=$(hjarne_resolve_brain) || return 1
+  logfile="$brain/log.md"
+  mkdir -p "$brain"
+  [[ -f "$logfile" && -n "$(tail -c1 "$logfile")" ]] && printf '\n' >> "$logfile"
+  printf -- '- %s — %s\n' "$(date +%F)" "$message" >> "$logfile"
+}
