@@ -91,3 +91,24 @@ hjarne_write_page() {
     printf '%s\n' "$body"
   } > "$path"
 }
+
+# Stage a note into an inbox dir with a hjarne:meta fence carrying provenance +
+# subdir (drain parses this to reconstruct the integrate call). Resolver-free by
+# design: this runs repo-side before a brain may exist. Filename is the same
+# provenance-keyed slug+hash as raw_path, so a re-stage of one provenance
+# overwrites its own file (idempotent). Echoes the staged path.
+# hjarne_inbox_stage <inbox-dir> <provenance> <content> [subdir]
+hjarne_inbox_stage() {
+  local inbox="$1" provenance="$2" content="$3" subdir="${4:-}"
+  local slug hash file
+  slug=$(printf '%s' "$provenance" | tr '[:upper:]' '[:lower:]' \
+         | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
+  hash=$(printf '%s' "$provenance" | shasum -a 256 | cut -c1-10)
+  mkdir -p "$inbox"
+  file="$inbox/${slug}-${hash}.md"
+  {
+    printf '<!-- hjarne:meta provenance=%s subdir=%s -->\n' "$provenance" "$subdir"
+    printf '%s\n' "$content"
+  } > "$file"
+  echo "$file"
+}
