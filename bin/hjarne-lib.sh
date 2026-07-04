@@ -112,3 +112,29 @@ hjarne_inbox_stage() {
   } > "$file"
   echo "$file"
 }
+
+# Orchestrate an integrate. When NO brain resolves — hjarne_resolve_brain fails
+# (no workspace) OR the resolved hjarne/ dir does not exist — stage the note to
+# the inbox (HJARNE_INBOX_DIR, default docs/brain-inbox/) and return 0: nothing
+# dropped, brain NEVER auto-created, nothing double-homed (the brain write path
+# is skipped entirely). Otherwise dedup-gate on the raw path (§6A), else archive
+# the raw note, route + version-stamp the wiki page, and log a dated entry. A
+# same-provenance re-integrate short-circuits (return 0) before any write.
+# Signature is fixed (T3/T4 code against it); the inbox target is an env default,
+# NOT a positional arg.
+# hjarne_integrate <provenance> <system-slug> <content> [subdir]
+hjarne_integrate() {
+  local provenance="$1" system="$2" content="$3" subdir="${4:-}"
+  local brain raw page inbox="${HJARNE_INBOX_DIR:-docs/brain-inbox}"
+  # No brain resolves (no workspace) OR brain dir absent → stage to inbox.
+  if ! brain=$(hjarne_resolve_brain 2>/dev/null) || [[ ! -d "$brain" ]]; then
+    hjarne_inbox_stage "$inbox" "$provenance" "$content" "$subdir" >/dev/null || return 1
+    return 0
+  fi
+  raw=$(hjarne_raw_path "$provenance" "$subdir") || return 1
+  [[ -e "$raw" ]] && return 0   # dedup: same provenance already filed
+  hjarne_archive_raw "$provenance" "$content" "$subdir" >/dev/null || return 1
+  page=$(hjarne_route "$system") || return 1
+  hjarne_write_page "$page" "$content" || return 1
+  hjarne_log_append "integrate $provenance → wiki/${system}.md" || return 1
+}
