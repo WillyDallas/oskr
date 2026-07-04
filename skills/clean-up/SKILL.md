@@ -107,10 +107,11 @@ Then spawn `reviewer` on the curator's output: every changed claim is backed by 
 
 **Brain half (permanent systems/tech knowledge).** For each `brain`-tagged item, distill it to a self-contained note, then route:
 
-- **`/hjarne` brain ability available** → hand each note to it; the brain owns the write.
-- **Brain absent (the v1 default — #28 not built)** → **stage, never drop**: append each note to `docs/brain-inbox/<YYYY-MM-DD>-<system>.md`, marked `<!-- pending migration to the brain (#28) -->`. It is committed (Phase 8) so nothing is lost. Never fold a brain note into `docs/` project docs — the boundary holds even while staged.
+Give each note a **note-unique** provenance of the shape `<issue-or-pr-ref>:<system-slug>` — the merged PR or issue ref plus the system slug (e.g. `#42:board-dispatcher`), never a bare issue ref, or a second note from the same issue silently dedups away. Hand the distilled note and that provenance to **`/hjarne integrate`**: `/hjarne` owns the write — it archives the raw note, version-stamps `wiki/<system-slug>.md`, and echoes a **returned page pointer** (the page relpath). Capture that pointer for the Phase 8 commit body. Never fold a brain note into `docs/` project docs — the boundary holds wherever `/hjarne` lands it.
 
-**Done when:** every doc-impact item is tagged `brain` or `repo` with a reason; every `repo` item is reconciled by the curator pass; every `brain` item is handed to `/hjarne` or written to `docs/brain-inbox/`; **zero items dropped or double-homed.**
+The brain-absent fallback belongs to `/hjarne`, not clean-up: if the brain isn't built yet, `/hjarne`'s own inbox fallback stages the note under `docs/brain-inbox/`. clean-up calls `/hjarne integrate` **unconditionally** and no longer writes any inbox itself.
+
+**Done when:** every doc-impact item is tagged `brain` or `repo` with a reason; every `repo` item is reconciled by the curator pass; every `brain` item is handed to `/hjarne integrate` and clean-up captures the returned page pointer; **zero items dropped or double-homed.**
 
 ## Phase 6: Archive plan files
 
