@@ -139,10 +139,12 @@ Archiving removes the card from the board view only — the issue is untouched a
 
 ```bash
 git add docs/
-git commit -m "clean-up: <system>"
+git commit -m "clean-up: <system>" \
+  -m "brain notes filed (returned page pointers from /hjarne integrate):" \
+  -m "- <system-slug> → wiki/<system-slug>.md"
 ```
 
-`git add docs/` captures the curator's doc changes, the `docs/plans/` deletions, and `docs/brain-inbox/` (gitignored `docs/temp/` + `docs/_local_archive/` are excluded). **Do not push** — that stays human-gated. Finish with a short summary: issues archived, issues kept, docs touched, **brain notes written vs staged** (with the staged count pending #28), and what the next run's seed will be.
+`git add docs/` captures the curator's doc changes, the `docs/plans/` deletions, and any `docs/brain-inbox/` notes `/hjarne` staged through its own inbox fallback (gitignored `docs/temp/` + `docs/_local_archive/` are excluded). The **commit body lists each** brain note's returned page pointer — the `wiki/<system-slug>.md` relpath `/hjarne integrate` echoed. That committed, `git log`-discoverable list is the sole repo-side breadcrumb for what landed in the brain; do not create a separate committed file for it (a `logs/clean-up.log` line is fine as a local trace but does not discharge this). **Do not push** — that stays human-gated. Finish with a short summary: issues archived, issues kept, docs touched, **brain notes integrated (each with its returned page pointer)**, and what the next run's seed will be.
 
 ---
 
