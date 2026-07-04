@@ -159,11 +159,11 @@ Every piece of knowledge the cluster surfaces routes to **exactly one** home. De
 
 **Per-task plans are always repo, always archived.** `docs/plans/<id>.md` is the ephemeral HOW (paths, TDD step order); on ship it moves to `docs/_local_archive/` (Phase 6). Never the brain — it goes stale by design.
 
-**Graceful degradation (the brain may not exist in v1):** brain-bound notes go to `/hjarne` when present, else to `docs/brain-inbox/` — committed, marked pending #28, never dropped, never mixed into project docs. When #28 lands, that inbox is the migration queue.
+**Graceful degradation lives entirely inside `/hjarne`:** clean-up always calls `/hjarne integrate` and captures the returned page pointer; if the brain isn't built yet, `/hjarne`'s own inbox fallback stages the note under `docs/brain-inbox/` (committed via Phase 8, never dropped, never mixed into project docs). clean-up itself never writes that inbox — the degradation path is `/hjarne`'s to own, and when the brain lands, that inbox is `/hjarne`'s migration queue.
 
 ## Gotchas
 
 - **`state: CLOSED` is not "shipped".** An issue can be closed `NOT_PLANNED`. For an umbrella, "shipped" means **every child closed** (the Area-branch merge model's portable signal) — not the umbrella's own state alone.
 - **Old plan files vastly outnumber clusters.** `docs/plans/` accumulates; archive only the ones linked to issues approved this run. The backlog drains over repeated runs, not one.
-- **Working artifacts vs. the record.** `docs/temp/` and `logs/` are gitignored; the committed record is the doc changes, the plan-file deletions, and `docs/brain-inbox/`. The board's archived-items view plus `logs/clean-up.log` carry the audit trail.
+- **Working artifacts vs. the record.** `docs/temp/` and `logs/` are gitignored; the committed record is the doc changes, the plan-file deletions, and any `docs/brain-inbox/` notes `/hjarne` staged as its inbox fallback. The board's archived-items view, `logs/clean-up.log`, and the Phase 8 commit body's page-pointer list carry the audit trail.
 - **Don't reach for `gh api graphql`.** Read the board through `blacksmith_list_board` and children through `list-children.sh` so the skill stays backend-neutral; use `gh` only for per-issue read/comment.
