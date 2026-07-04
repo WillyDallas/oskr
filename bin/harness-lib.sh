@@ -43,8 +43,22 @@ blacksmith_config_path() {
 }
 
 blacksmith_config_get() {
-  local path="$1" cfg
+  local path="$1" cfg out gcfg
   cfg=$(blacksmith_config_path) || return 1
+  # Project tier first. A resolving key returns exactly what jq emits today;
+  # the global fallback is strictly additive (present-key reads unchanged).
+  if out=$(jq -er "$path" "$cfg" 2>/dev/null); then
+    printf '%s\n' "$out"
+    return 0
+  fi
+  # Absent from the project config: consult the global tier if one resolves.
+  if gcfg=$(blacksmith_global_config_path 2>/dev/null); then
+    if out=$(jq -er "$path" "$gcfg" 2>/dev/null); then
+      printf '%s\n' "$out"
+      return 0
+    fi
+  fi
+  # Neither tier resolved the key: reproduce today's failure (jq error -> stderr).
   jq -er "$path" "$cfg"
 }
 
@@ -52,6 +66,44 @@ blacksmith_config_get_array() {
   local path="$1" cfg
   cfg=$(blacksmith_config_path) || return 1
   jq -er "${path}[]" "$cfg"
+}
+
+# --- workspace-root resolution ---------------------------------------------
+
+# Echo the workspace root: the nearest ancestor of $PWD containing a .oskr/
+# directory. $OSKR_WORKSPACE, if non-empty, overrides the walk (and must itself
+# contain .oskr/). Walks the filesystem, not git, so it crosses the gitignored
+# project-repo boundary (e.g. projects/oskr inside the workspace). Loud error
+# when neither resolves.
+blacksmith_workspace_dir() {
+  if [[ -n "${OSKR_WORKSPACE:-}" ]]; then
+    if [[ -d "$OSKR_WORKSPACE/.oskr" ]]; then
+      echo "$OSKR_WORKSPACE"; return 0
+    fi
+    _blacksmith_die "OSKR_WORKSPACE set but no .oskr/ found at: $OSKR_WORKSPACE"
+    return 1
+  fi
+  local dir="$PWD"
+  while :; do
+    if [[ -d "$dir/.oskr" ]]; then
+      echo "$dir"; return 0
+    fi
+    [[ "$dir" == "/" ]] && break
+    dir=$(dirname "$dir")
+  done
+  _blacksmith_die "not inside an oskr workspace; no ancestor .oskr/ found and OSKR_WORKSPACE unset"
+  return 1
+}
+
+# Echo the global config file (<workspace>/.oskr/config.json), or fail quietly
+# (return 1, no stderr) when no workspace or no global config exists. Quiet by
+# design: it is a fallback probe, not a primary resolver.
+blacksmith_global_config_path() {
+  local ws gcfg
+  ws=$(blacksmith_workspace_dir 2>/dev/null) || return 1
+  gcfg="$ws/.oskr/config.json"
+  [[ -f "$gcfg" ]] || return 1
+  echo "$gcfg"
 }
 
 # --- forge dispatch ---------------------------------------------------------
@@ -102,6 +154,16 @@ blacksmith_list_children()     { _blacksmith_dispatch list_children "$@"; }
 blacksmith_set_milestone()     { _blacksmith_dispatch set_milestone "$@"; }
 blacksmith_add_dep()           { _blacksmith_dispatch add_dep "$@"; }
 blacksmith_base_branch()       { _blacksmith_dispatch base_branch "$@"; }
+blacksmith_count_issues()      { _blacksmith_dispatch count_issues "$@"; }
+blacksmith_provision_board()   { _blacksmith_dispatch provision_board "$@"; }
+blacksmith_remote_exists()     { _blacksmith_dispatch remote_exists "$@"; }
+
+# Board provisioning (init / setup; #27 T5). Routes through the seam like every op.
+blacksmith_provision_status_columns() { _blacksmith_dispatch provision_status_columns "$@"; }
+
+# Adopt full re-intake (#27 T7): harvest read + Epoch milestone materialization.
+blacksmith_list_issues()       { _blacksmith_dispatch list_issues "$@"; }
+blacksmith_create_milestone()  { _blacksmith_dispatch create_milestone "$@"; }
 
 # --- column-vocabulary helpers (forge-agnostic) ----------------------------
 
@@ -111,20 +173,26 @@ _blacksmith_normalize_slug() {
   printf '%s' "$s"
 }
 
-# Canonical slug → default display name
+# Canonical slug → default display name (8-column scheme; #27 T5).
 _blacksmith_default_name_for_slug() {
   case "$1" in
-    backlog)     echo "Backlog" ;;
-    research)    echo "Research" ;;
-    needs_input) echo "Needs Input" ;;
-    planning)    echo "Planning" ;;
-    approval)    echo "Approval" ;;
-    ready)       echo "Ready" ;;
-    in_progress) echo "In Progress" ;;
-    in_review)   echo "In Review" ;;
-    done)        echo "Done" ;;
-    *)           return 1 ;;
+    backlog)       echo "Backlog" ;;
+    scoping)       echo "Scoping" ;;
+    planning)      echo "Planning" ;;
+    plan_approval) echo "Plan Approval" ;;
+    ready)         echo "Ready" ;;
+    in_progress)   echo "In Progress" ;;
+    in_review)     echo "In Review" ;;
+    done)          echo "Done" ;;
+    *)             return 1 ;;
   esac
+}
+
+# The canonical board columns in board order — the SINGLE source of truth that kills
+# the provisioning-vs-runtime column drift (#52). Provisioning maps each slug to its
+# display name via _blacksmith_default_name_for_slug.
+_blacksmith_board_column_slugs() {
+  printf '%s\n' backlog scoping planning plan_approval ready in_progress in_review done
 }
 
 # Echoes the display name to look up in a backend's column representation.
@@ -277,6 +345,77 @@ _blacksmith_github_column_name_for() {
   local uuid="$1" options
   options=$(_blacksmith_github_status_options_json) || return 1
   printf '%s' "$options" | jq -er --arg id "$uuid" '.[] | select(.id == $id) | .name'
+}
+
+# --- Board provisioning (init/setup; #27 T5) -------------------------------
+
+# GitHub single-select option color (enum) for a column slug — presentation only.
+_blacksmith_github_color_for_slug() {
+  case "$1" in
+    backlog)       echo GRAY ;;
+    scoping)       echo BLUE ;;
+    planning)      echo PURPLE ;;
+    plan_approval) echo YELLOW ;;
+    ready)         echo GREEN ;;
+    in_progress)   echo BLUE ;;
+    in_review)     echo PURPLE ;;
+    done)          echo GREEN ;;
+    *)             echo GRAY ;;
+  esac
+}
+
+# Build the GraphQL singleSelectOptions array literal for the 8 canonical columns,
+# from the single-source-of-truth slug list. name+color+description mirror the shape
+# GitHub's ProjectV2SingleSelectFieldOptionInput requires.
+_blacksmith_github_status_options_literal() {
+  local slug name color out=""
+  while IFS= read -r slug; do
+    name=$(_blacksmith_default_name_for_slug "$slug") || return 1
+    color=$(_blacksmith_github_color_for_slug "$slug")
+    out+="{ name: \"$name\", color: $color, description: \"\" },"
+  done < <(_blacksmith_board_column_slugs)
+  printf '[%s]' "${out%,}"
+}
+
+# Provision the project's Status single-select field with the 8 canonical columns.
+# Augments the existing Status field IN PLACE (id-preserving, no orphaned assignments);
+# on failure, creates a separate "Phase" field with the same options. Echoes the
+# resulting status field NAME ("Status" | "Phase") so the caller records
+# workflow.status_field_name.  provision_status_columns <project_node_id>
+_blacksmith_github_provision_status_columns() {
+  local project_id="$1" options field_id resp
+  [[ -n "$project_id" ]] || { _blacksmith_die "provision_status_columns: project node id required"; return 1; }
+  options=$(_blacksmith_github_status_options_literal) || return 1
+  # shellcheck disable=SC2016
+  field_id=$(gh api graphql -f query='
+    query($projectId: ID!) {
+      node(id: $projectId) {
+        ... on ProjectV2 {
+          fields(first: 50) { nodes { ... on ProjectV2SingleSelectField { id name } } }
+        }
+      }
+    }
+  ' -f projectId="$project_id" --jq '.data.node.fields.nodes[] | select(.name == "Status") | .id' 2>/dev/null)
+  if [[ -n "$field_id" ]]; then
+    resp=$(gh api graphql -f query="
+      mutation(\$fieldId: ID!) {
+        updateProjectV2Field(input: { fieldId: \$fieldId, singleSelectOptions: $options }) {
+          projectV2Field { ... on ProjectV2SingleSelectField { id name } }
+        }
+      }
+    " -f fieldId="$field_id" 2>&1)
+    grep -q '"errors"' <<<"$resp" || { printf 'Status'; return 0; }
+  fi
+  gh api graphql -f query="
+    mutation(\$projectId: ID!) {
+      createProjectV2Field(input: {
+        projectId: \$projectId, dataType: SINGLE_SELECT, name: \"Phase\",
+        singleSelectOptions: $options
+      }) { projectV2Field { ... on ProjectV2SingleSelectField { id name } } }
+    }
+  " -f projectId="$project_id" >/dev/null 2>&1 \
+    || { _blacksmith_die "provision_status_columns: could not augment Status nor create Phase"; return 1; }
+  printf 'Phase'
 }
 
 # --- Compound operations ---------------------------------------------------
@@ -536,6 +675,14 @@ _blacksmith_github_archive_item() {
   ' -f project="$project_id" -f item="$item_id"
 }
 
+# Probe whether owner/repo exists on GitHub. Returns 0 if it exists, non-zero
+# otherwise. Used by init v2 mode detection (create-new vs clone). No stdout.
+#   remote_exists <owner> <repo>
+_blacksmith_github_remote_exists() {
+  local owner="$1" repo="$2"
+  gh repo view "${owner}/${repo}" --json nameWithOwner >/dev/null 2>&1
+}
+
 # Echo the number of OPEN PRs whose head branch is $1 (0 on any error).
 _blacksmith_github_pr_open_count() {
   local branch="$1" owner repo
@@ -586,6 +733,23 @@ _blacksmith_github_read_deps() {
       repository: (.repository.full_name // ((.repository_url // "") | sub("^https?://[^/]+/repos/"; ""))),
       url: .html_url
     } ]'
+}
+
+# --- Issue harvest (adopt full-migration; #27) ------------------------------
+
+# Echo ALL repo issues (open + closed; pull requests excluded) as the neutral
+# array [ { number, title, state, body, labels:[name] } ]. The off-board backlog
+# source the adopt harvest reconciles. Native REST list, paginated to 100.
+#   list_issues
+_blacksmith_github_list_issues() {
+  local owner repo raw
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/issues?state=all&per_page=100" 2>/dev/null) \
+    || { _blacksmith_die "list_issues query failed for ${owner}/${repo}"; return 1; }
+  printf '%s' "$raw" | jq -c '[ .[]
+    | select(has("pull_request") | not)
+    | { number, title, state, body: (.body // ""), labels: [ (.labels // [])[] | .name ] } ]'
 }
 
 # --- Issue creation (native; #26 slice 3) ----------------------------------
@@ -673,6 +837,27 @@ _blacksmith_github_set_milestone() {
     || { _blacksmith_die "set_milestone: failed to set #$issue -> '$title'"; return 1; }
 }
 
+# Find-or-create a milestone by TITLE; echo its number. Idempotent: returns the
+# existing milestone's number if present, else POSTs a new open milestone. Adopt
+# re-emit uses this to materialize the Epoch (set_milestone only RESOLVES one).
+#   create_milestone <title>
+_blacksmith_github_create_milestone() {
+  local title="$1" owner repo raw number
+  [[ -n "$title" ]] || { _blacksmith_die "create_milestone: title required"; return 1; }
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/milestones?state=all&per_page=100" 2>/dev/null) \
+    || { _blacksmith_die "create_milestone: cannot list milestones"; return 1; }
+  number=$(printf '%s' "$raw" | jq -r --arg t "$title" 'map(select(.title==$t)) | .[0].number // empty')
+  if [[ -z "$number" ]]; then
+    raw=$(gh api "repos/${owner}/${repo}/milestones" -f title="$title" 2>/dev/null) \
+      || { _blacksmith_die "create_milestone: create failed for '$title'"; return 1; }
+    number=$(printf '%s' "$raw" | jq -er '.number') \
+      || { _blacksmith_die "create_milestone: no number in create response"; return 1; }
+  fi
+  printf '%s' "$number"
+}
+
 # --- Dependency write (native blocked-by edge) ------------------------------
 # Record that <blocked> is BLOCKED BY <blocker> as a native typed edge (the read
 # side is blacksmith_read_deps). GOTCHA: the dependencies API takes the blocker's
@@ -716,6 +901,20 @@ _blacksmith_github_base_branch() {
   printf '%s' "$default"
 }
 
+# --- Existing-issue detection (adopt consent gate; #27 T6) ------------------
+# Echo the count of EXISTING issues on the configured repo (open+closed). Pull
+# requests are EXCLUDED — GitHub's REST issues list interleaves PRs. The adopt
+# consent gate reads this: >0 => prompt full-vs-register; 0 => no prompt. Single
+# page (per_page=100) is sufficient for the >0-vs-0 gate. Never fails the caller
+# (echo 0 on any error) so the gate degrades to "no existing".
+_blacksmith_github_count_issues() {
+  local owner repo
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  gh api "repos/${owner}/${repo}/issues?state=all&per_page=100" \
+    --jq '[ .[] | select(has("pull_request") | not) ] | length' 2>/dev/null || echo 0
+}
+
 # ===========================================================================
 # FORGEJO BACKEND (_blacksmith_forgejo_*)
 # ---------------------------------------------------------------------------
@@ -757,6 +956,25 @@ _blacksmith_forgejo_read_deps() {
       repository: (.repository.full_name // ""),
       url: .html_url
     } ]'
+}
+
+# Forgejo harvest: same neutral shape. `type=issues` excludes PRs server-side.
+_blacksmith_forgejo_list_issues() {
+  local owner repo raw
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues?type=issues&state=all&limit=100") \
+    || { _blacksmith_die "list_issues (forgejo) query failed"; return 1; }
+  printf '%s' "$raw" | jq -c '[ .[]
+    | { number, title, state, body: (.body // ""), labels: [ (.labels // [])[] | .name ] } ]'
+}
+
+# Probe whether owner/repo exists on the Forgejo instance. Returns 0 if it
+# exists, non-zero otherwise. Same neutral contract as the GitHub probe.
+#   remote_exists <owner> <repo>
+_blacksmith_forgejo_remote_exists() {
+  local owner="$1" repo="$2"
+  _blacksmith_forgejo_curl GET "/repos/${owner}/${repo}" >/dev/null 2>&1
 }
 
 # On Forgejo the issue IS the board item, so the "item handle" callers pass around
@@ -837,6 +1055,59 @@ _blacksmith_forgejo_ensure_label() {
   _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/labels" \
     "$(jq -nc --arg n "$name" --arg d "$description" --arg c "$color" '{name:$n, description:$d, color:$c}')" \
     >/dev/null 2>&1 || true
+}
+
+# Idempotent EXCLUSIVE scoped-label create (a single-select board column). Unlike
+# the neutral _blacksmith_forgejo_ensure_label, sets exclusive:true so assigning one
+# label in a scope auto-evicts the prior same-scope label (server-enforced; see
+# docs/research/2026-06-27-backend-capability.md:43-49). Never fails the caller
+# (re-creating an existing label 422s and is tolerated for idempotency).
+#   _blacksmith_forgejo_ensure_exclusive_label <name> [description] [color]
+_blacksmith_forgejo_ensure_exclusive_label() {
+  local name="$1" description="${2:-}" color="${3:-ededed}" owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  [[ "$color" == \#* ]] || color="#$color"
+  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/labels" \
+    "$(jq -nc --arg n "$name" --arg d "$description" --arg c "$color" \
+        '{name:$n, exclusive:true, color:$c, description:$d}')" \
+    >/dev/null 2>&1 || true
+}
+
+# Assert the per-repo issue-dependencies unit is enabled. If it is off, Forgejo's
+# /dependencies endpoints 404 and read_deps/add_dep silently degrade — so this is a
+# LOUD gate at provisioning time, not a silent skip. Reads internal_tracker off the
+# repo object. See docs/research/2026-06-27-backend-capability.md:41,124.
+#   _blacksmith_forgejo_assert_deps_unit <owner> <repo>
+_blacksmith_forgejo_assert_deps_unit() {
+  local owner="$1" repo="$2" raw enabled
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}") \
+    || { _blacksmith_die "provision_board: cannot read repo ${owner}/${repo} to verify the issue-dependencies unit"; return 1; }
+  enabled=$(printf '%s' "$raw" | jq -r '.internal_tracker.enable_issue_dependencies // false')
+  [[ "$enabled" == "true" ]] \
+    || { _blacksmith_die "provision_board: issue-dependencies unit is DISABLED on ${owner}/${repo}; enable it (repo Settings -> Units) before onboarding"; return 1; }
+}
+
+# Provision a Forgejo repo's board behind the seam: assert the issue-dependencies
+# unit, then create the 8 status columns + priority/size/category taxonomy as
+# EXCLUSIVE scoped labels. Idempotent on labels; fails LOUDLY if the deps unit is off.
+# Live acceptance is Area 5's gate (bin/smoke/forgejo-roundtrip.sh); curl-shim-proven here.
+#   provision_board
+_blacksmith_forgejo_provision_board() {
+  local owner repo slug
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  _blacksmith_forgejo_assert_deps_unit "$owner" "$repo" || return 1
+
+  # The reshaped 8-column status scheme (slugs only; display names live in
+  # _blacksmith_default_name_for_slug, owned by the T5 reshape — independent here).
+  for slug in backlog scoping planning plan_approval ready in_progress in_review done; do
+    _blacksmith_forgejo_ensure_exclusive_label "status/${slug}" "oskr status column" "ededed"
+  done
+  # Priority / Size / Category taxonomy (each scope single-select).
+  for slug in p1 p2 p3;                      do _blacksmith_forgejo_ensure_exclusive_label "priority/${slug}" "oskr priority" "d73a4a"; done
+  for slug in xs s m l xl;                   do _blacksmith_forgejo_ensure_exclusive_label "size/${slug}"     "oskr size"     "0e8a16"; done
+  for slug in feature bug chore spike docs;  do _blacksmith_forgejo_ensure_exclusive_label "category/${slug}" "oskr category" "5319e7"; done
 }
 
 # Add a label to an issue by name (never fails the caller).
@@ -1004,6 +1275,25 @@ _blacksmith_forgejo_set_milestone() {
     || { _blacksmith_die "set_milestone (forgejo): failed to set #$issue -> '$title'"; return 1; }
 }
 
+# Forgejo find-or-create milestone by TITLE; echo its id. Same idempotent contract.
+_blacksmith_forgejo_create_milestone() {
+  local title="$1" owner repo raw mid
+  [[ -n "$title" ]] || { _blacksmith_die "create_milestone: title required"; return 1; }
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/milestones?state=all&limit=100") \
+    || { _blacksmith_die "create_milestone (forgejo): cannot list milestones"; return 1; }
+  mid=$(printf '%s' "$raw" | jq -r --arg t "$title" 'map(select(.title==$t)) | .[0].id // empty')
+  if [[ -z "$mid" ]]; then
+    raw=$(_blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/milestones" \
+          "$(jq -nc --arg t "$title" '{title:$t}')") \
+      || { _blacksmith_die "create_milestone (forgejo): create failed for '$title'"; return 1; }
+    mid=$(printf '%s' "$raw" | jq -er '.id') \
+      || { _blacksmith_die "create_milestone (forgejo): no id in create response"; return 1; }
+  fi
+  printf '%s' "$mid"
+}
+
 # --- Dependency write (Forgejo native blocked-by) ---------------------------
 # Record that <blocked> is BLOCKED BY <blocker>. Forgejo's dependency POST takes
 # IssueMeta{owner,repo,index} where index = the blocker's issue NUMBER (not a db
@@ -1034,4 +1324,15 @@ _blacksmith_forgejo_base_branch() {
     ab=$(_blacksmith_area_branch_from_body "$body"); [[ -n "$ab" ]] && { printf '%s' "$ab"; return 0; }
   fi
   printf '%s' "$default"
+}
+
+# Echo the count of EXISTING issues (adopt consent gate; #27 T6). Forgejo's
+# ?type=issues already excludes PRs. Never fails the caller (echo 0 on error).
+_blacksmith_forgejo_count_issues() {
+  local owner repo raw
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues?state=all&type=issues&limit=50") \
+    || { echo 0; return 0; }
+  printf '%s' "$raw" | jq 'length' 2>/dev/null || echo 0
 }

@@ -1,0 +1,6 @@
+[
+  { "number": 1, "title": "real issue one", "state": "open" },
+  { "number": 2, "title": "real issue two", "state": "closed" },
+  { "number": 3, "title": "a pull request", "state": "open",
+    "pull_request": { "url": "https://api.github.com/repos/acme/x/pulls/3" } }
+]

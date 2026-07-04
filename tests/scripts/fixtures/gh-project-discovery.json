@@ -7,15 +7,14 @@
           "nodes": [
             { "id": "PVTSSF_statusTEST", "name": "Status",
               "options": [
-                { "id": "opt-backlog",     "name": "Backlog" },
-                { "id": "opt-research",    "name": "Research" },
-                { "id": "opt-needs-input", "name": "Needs Input" },
-                { "id": "opt-planning",    "name": "Planning" },
-                { "id": "opt-approval",    "name": "Approval" },
-                { "id": "opt-ready",       "name": "Ready" },
-                { "id": "opt-in-progress", "name": "In Progress" },
-                { "id": "opt-in-review",   "name": "In Review" },
-                { "id": "opt-done",        "name": "Done" }
+                { "id": "opt-backlog",       "name": "Backlog" },
+                { "id": "opt-scoping",       "name": "Scoping" },
+                { "id": "opt-planning",      "name": "Planning" },
+                { "id": "opt-plan-approval", "name": "Plan Approval" },
+                { "id": "opt-ready",         "name": "Ready" },
+                { "id": "opt-in-progress",   "name": "In Progress" },
+                { "id": "opt-in-review",     "name": "In Review" },
+                { "id": "opt-done",          "name": "Done" }
               ]
             },
             { "id": "PVTSSF_priorityTEST", "name": "Priority", "options": [] }

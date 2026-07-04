@@ -1,35 +1,42 @@
 ---
 name: init
-description: Interactive bootstrap for a new oskr-managed project. Creates the GitHub repo (private), provisions a Projects v2 board with oskr's 9-column / Priority+Size+Category schema, writes harness-config.json, registers the project in oskr's local registry, and optionally ingests a requirements markdown doc into seed issues. Run from inside the directory where the new consumer repo should live.
+description: Interactive bootstrap for a new oskr-managed project. Creates the GitHub repo (private), provisions a Projects v2 board with oskr's 8-column / Priority+Size+Category schema, writes harness-config.json, registers the project in oskr's local registry, and optionally ingests a requirements markdown doc into seed issues. Run from inside the directory where the new consumer repo should live.
 argument-hint: "(no arguments — interactive)"
-allowed-tools: Bash(gh *) Bash(git *) Bash(mkdir *) Bash(touch *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(find-item.sh*) Bash(move-issue.sh*) Read Write Edit
+allowed-tools: Bash(gh *) Bash(git *) Bash(mkdir *) Bash(touch *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(source "$CLAUDE_PLUGIN_ROOT/bin/*.sh") Bash(registry.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(adopt-detect.sh*) Bash(adopt-register.sh*) Bash(adopt-harvest.sh*) Bash(adopt-reemit.sh*) Read Write Edit
 ---
 
 You are walking the developer through bootstrapping a new oskr-managed project. This is an interactive setup — branch based on detected state, ask only what you can't infer, and surface the impact of each step before doing it.
 
 ## Phase 0: Pre-flight detection
 
-Before asking any questions, gather what you can from the environment.
+Source the init helpers and the blacksmith (portable across the cache vs `--plugin-dir`):
 
 ```bash
+source "$CLAUDE_PLUGIN_ROOT/bin/harness-lib.sh"
+source "$CLAUDE_PLUGIN_ROOT/bin/init-lib.sh"
+
 CWD=$(pwd)
 DIR_NAME=$(basename "$CWD")
 GH_USER=$(gh api user --jq '.login' 2>/dev/null || echo "")
-IN_GIT=$(git rev-parse --git-dir 2>/dev/null && echo yes || echo no)
-HAS_REMOTE=$([ "$IN_GIT" = "yes" ] && git remote get-url origin 2>/dev/null && echo yes || echo no)
-HAS_CONFIG=$([ -f harness-config.json ] && echo yes || echo no)
+
+IN_GIT=$([ -d .git ] || git rev-parse --git-dir >/dev/null 2>&1 && echo yes || echo no)
+HAS_ORIGIN=$( [ "$IN_GIT" = yes ] && git remote get-url origin >/dev/null 2>&1 && echo yes || echo no)
+HAS_CONFIG=$([ -f harness-config.json ] || [ -f .claude/harness-config.json ] && echo yes || echo no)
+
+# Forge-existence probe (clone vs create-new). Ask owner/repo first if not yet known;
+# default forge github. The probe is the blacksmith verb — never an inline gh/curl.
+REMOTE_EXISTS=$(blacksmith_remote_exists "${OWNER:-$GH_USER}" "${REPO:-$DIR_NAME}" && echo yes || echo no)
+
+MODE=$(init_detect_mode "$IN_GIT" "$HAS_ORIGIN" "$REMOTE_EXISTS" "$HAS_CONFIG")
+echo "Detected mode: $MODE"
 ```
 
-Report what you found in one line per fact:
-- CWD: `<path>`
-- GH user: `<login>`
-- Git repo: `<yes/no>`, remote: `<yes/no>`
-- harness-config.json exists: `<yes/no>`
+Report each fact on its own line, then branch on `$MODE`:
 
-**Branch:**
-- If `harness-config.json` exists → this project is already initialized. Stop and tell the developer: "This directory is already an oskr-managed project. Re-init would overwrite config. If that's what you want, delete harness-config.json first."
-- If `IN_GIT=yes` but `HAS_REMOTE=yes` → v1 doesn't support wiring to an existing GitHub remote. Surface this: "v1 supports fresh-repo bootstrap only. Wiring to an existing repo is tracked in oskr#16. To proceed, either rename/remove the existing origin or invoke this skill in a fresh directory."
-- Otherwise → proceed to Phase 1.
+- **already-init** → Stop: "This directory is already an oskr-managed project (`harness-config.json` present). Re-init would overwrite config; delete it first if that is what you want."
+- **create-new** → proceed to Phase 1 (greenfield: create repo + board).
+- **clone** → the repo exists on the forge but not here; clone it, then proceed to Phase 1 to write config / verify the board.
+- **adopt** → a local repo already wired to a remote; hand off to the **adopt path** (consent gate + register-only / full migration). *Adopt onboarding is built in a separate slice — do not provision over an existing board here.*
 
 ## Phase 1: Gather inputs (interactive)
 
@@ -50,6 +57,8 @@ Ask one question at a time. Pre-fill defaults from Phase 0 where possible.
    - Ask: "Base branch for feature PRs? (default: main)"
 
 6. **Requirements doc path** — optional. Ask: "Path to a markdown requirements doc to ingest as seed issues? (leave blank to skip)"
+
+7. **Backend (forge)** — `github` (default) or `forgejo`. Ask: "Backend? github (default) or forgejo". Set `FORGE` accordingly (default `github`). For `forgejo`, also gather `BASE_URL` (e.g. `https://git.example.org`) and confirm `$FORGEJO_TOKEN` is set in the workspace `.env`.
 
 Confirm the full input set back to the developer before proceeding:
 > Setup plan:
@@ -89,7 +98,7 @@ git remote add origin "https://github.com/$OWNER/$REPO.git"
 
 ## Phase 4: Provision the GitHub Project v2 board
 
-This is the most fragile step. Three sub-steps: create project, add it to repo's project list, augment the Status field with oskr's 9 columns, create Priority/Size/Category custom fields.
+This is the most fragile step. Three sub-steps: create project, add it to repo's project list, augment the Status field with oskr's 8 columns, create Priority/Size/Category custom fields.
 
 ### Step 4a: Create the project
 
@@ -129,92 +138,29 @@ gh api graphql -f query='
 ' -f projectId="$PROJECT_ID" -f repoId="$REPO_NODE_ID"
 ```
 
-### Step 4c: Configure the Status field — try Path 1, fall back to Path 2
+### Step 4c: Provision the Status columns (through the board-ops seam)
 
-The default Status field has 3 options (Todo, In Progress, Done). oskr needs 9 columns: Backlog, Research, Needs Input, Planning, Approval, Ready, In Progress, In Review, Done.
-
-**Path 1 (preferred): augment the existing Status field.** Try updating its options to the full 9-column set.
+The default Status field has 3 options (Todo, In Progress, Done). oskr needs the 8
+columns: Backlog, Scoping, Planning, Plan Approval, Ready, In Progress, In Review, Done.
+Provisioning routes through the blacksmith verb so the column set has one source of truth
+(no inline 9-col mutation drift — oskr#52).
 
 ```bash
-STATUS_FIELD_ID=$(gh api graphql -f query='
-  query($projectId: ID!) {
-    node(id: $projectId) {
-      ... on ProjectV2 {
-        fields(first: 50) {
-          nodes {
-            ... on ProjectV2SingleSelectField { id name }
-          }
-        }
-      }
-    }
-  }
-' -f projectId="$PROJECT_ID" --jq '.data.node.fields.nodes[] | select(.name == "Status") | .id')
+source "$CLAUDE_PLUGIN_ROOT/bin/harness-lib.sh"
 
-# Try updateProjectV2Field with new options
-STATUS_UPDATE=$(gh api graphql -f query='
-  mutation($fieldId: ID!) {
-    updateProjectV2Field(input: {
-      fieldId: $fieldId,
-      singleSelectOptions: [
-        { name: "Backlog", color: GRAY, description: "Not yet planned" },
-        { name: "Research", color: BLUE, description: "Investigation in progress" },
-        { name: "Needs Input", color: ORANGE, description: "Waiting on developer Q&A" },
-        { name: "Planning", color: PURPLE, description: "Plan being drafted" },
-        { name: "Approval", color: YELLOW, description: "Waiting on developer plan review" },
-        { name: "Ready", color: GREEN, description: "Plan approved, ready to execute" },
-        { name: "In Progress", color: BLUE, description: "Implementation in flight" },
-        { name: "In Review", color: PURPLE, description: "PR open, awaiting human merge" },
-        { name: "Done", color: GREEN, description: "Shipped" }
-      ]
-    }) {
-      projectV2Field { ... on ProjectV2SingleSelectField { id name options { name } } }
-    }
-  }
-' -f fieldId="$STATUS_FIELD_ID" 2>&1)
-
-if echo "$STATUS_UPDATE" | grep -q '"errors"'; then
-  echo "Path 1 (augment Status) failed:"
-  echo "$STATUS_UPDATE" | jq -r '.errors[]?.message // .message // .'
-  STATUS_PATH_TAKEN="phase"
-else
-  STATUS_PATH_TAKEN="status"
-  echo "Path 1 succeeded — Status field augmented with 9 columns."
-fi
+# Augments the existing Status field in place; falls back to a separate "Phase" field.
+# Echoes the resulting status field name ("Status" or "Phase").
+STATUS_FIELD_NAME=$(blacksmith_provision_status_columns "$PROJECT_ID")
+echo "Status columns provisioned (field: $STATUS_FIELD_NAME)."
 ```
 
-**Path 2 (fallback): create a "Phase" single-select field with the 9 columns; leave the default Status alone.**
+If it could neither augment Status nor create Phase, the verb exits non-zero — stop and
+surface the failure; do not proceed to Phase 5.
 
-If Path 1 failed:
-```bash
-if [[ "$STATUS_PATH_TAKEN" == "phase" ]]; then
-  gh api graphql -f query='
-    mutation($projectId: ID!) {
-      createProjectV2Field(input: {
-        projectId: $projectId,
-        dataType: SINGLE_SELECT,
-        name: "Phase",
-        singleSelectOptions: [
-          { name: "Backlog", color: GRAY, description: "Not yet planned" },
-          { name: "Research", color: BLUE, description: "Investigation in progress" },
-          { name: "Needs Input", color: ORANGE, description: "Waiting on developer Q&A" },
-          { name: "Planning", color: PURPLE, description: "Plan being drafted" },
-          { name: "Approval", color: YELLOW, description: "Waiting on developer plan review" },
-          { name: "Ready", color: GREEN, description: "Plan approved, ready to execute" },
-          { name: "In Progress", color: BLUE, description: "Implementation in flight" },
-          { name: "In Review", color: PURPLE, description: "PR open, awaiting human merge" },
-          { name: "Done", color: GREEN, description: "Shipped" }
-        ]
-      }) {
-        projectV2Field { ... on ProjectV2SingleSelectField { id name } }
-      }
-    }
-  ' -f projectId="$PROJECT_ID"
-  echo "Path 2 succeeded — new 'Phase' field created. Default Status field left untouched."
-  echo "harness-config.json will need workflow.status_field_name: Phase"
-fi
-```
-
-Capture `STATUS_PATH_TAKEN` for later — it determines what goes in `harness-config.json`'s workflow section.
+If `STATUS_FIELD_NAME` is not `Status` (the in-place augment failed and the verb created a
+separate `Phase` field), add `"status_field_name": "$STATUS_FIELD_NAME"` to the `workflow`
+block of `harness-config.json` after Phase 5, so the harness resolves columns against the
+right field.
 
 ### Step 4d: Create Priority, Size, Category custom fields
 
@@ -274,72 +220,101 @@ gh api graphql -f query='
 
 ## Phase 5: Write harness-config.json
 
-Build the config based on inputs and Phase 4 outcomes.
+Emit the config through the init writer — it stamps the `forge` discriminator and
+the matching backend block. (`init-lib.sh` was sourced in Phase 0.) The writer emits the
+live 8-column dispatcher set — `"actionable_columns": ["scoping", "planning", "ready"]`
+(sourced from `bin/init-lib.sh`, the one place that feeds every freshly-init'd config).
 
 ```bash
-# workflow.column_names depends on Path 1 vs Path 2 — only Path 2 needs an alias for the status field name
-if [[ "$STATUS_PATH_TAKEN" == "phase" ]]; then
-  WORKFLOW_BLOCK='"workflow": {
-    "kind": "gen-eval-9col",
-    "column_names": {},
-    "status_field_name": "Phase",
-    "actionable_columns": ["research", "planning", "ready"]
-  }'
+if [[ "${FORGE:-github}" == "forgejo" ]]; then
+  init_emit_config forgejo "$NAME" "$TECH_STACK" "$BASE_BRANCH" \
+    "$BASE_URL" "$OWNER" "$REPO" > harness-config.json
 else
-  WORKFLOW_BLOCK='"workflow": {
-    "kind": "gen-eval-9col",
-    "column_names": {},
-    "actionable_columns": ["research", "planning", "ready"]
-  }'
+  init_emit_config github "$NAME" "$TECH_STACK" "$BASE_BRANCH" \
+    "$OWNER" "$REPO" "${PROJECT_NUMBER:-0}" > harness-config.json
 fi
 
-cat > harness-config.json <<EOF
-{
-  "name": "$NAME",
-  "github": {
-    "owner": "$OWNER",
-    "repo": "$REPO",
-    "project_number": $PROJECT_NUMBER
-  },
-  $WORKFLOW_BLOCK,
-  "paths": {
-    "plans": "docs/plans",
-    "research": "docs/research",
-    "plan_archive": "docs/_local_archive"
-  },
-  "agent_context": {
-    "project_name": "$NAME",
-    "tech_stack": "$TECH_STACK"
-  },
-  "base_branch": "$BASE_BRANCH"
-}
-EOF
-
-# Validate
 jq . harness-config.json > /dev/null || { echo "ABORT: malformed harness-config.json"; exit 1; }
 ```
 
-## Phase 6: Register in the oskr project registry
+For `create-new`/`clone`, `PROJECT_NUMBER` is the board number captured in Phase 4
+(provisioning slice); if Phase 4 has not run yet it defaults to `0` and the
+provisioning slice backfills it.
 
-The registry tracks all consumers managed by this oskr install. The future cross-project dispatcher (oskr#6) reads from it. For now it's a stub that init populates.
+## Phase 5b: Adopt — consent gate & register-only (adopt mode only)
+
+This phase runs ONLY in **adopt** mode (an existing local repo with a remote, classified
+by mode-detection). oskr **never auto-migrates** an adopted repo — it detects whether the
+repo already has a workflow and asks the developer how to proceed.
+
+1. **Detect existing issues.** With the adopt config already emitted (forge + coords),
+   probe the forge through the blacksmith:
+   ```bash
+   VERDICT=$(adopt-detect.sh)   # "existing <N>"  or  "empty 0"
+   ```
+
+2. **Branch on the verdict — never auto-migrate:**
+   - **`empty 0`** — the repo has no existing issues. There is nothing to migrate;
+     proceed without a migration prompt (register-only, or new-style provisioning if the
+     developer asked for it). Do NOT prompt.
+   - **`existing <N>`** — the repo already has issues/a board. **Stop and ask:**
+     > This repo has N existing issues. How should oskr adopt it?
+     > [1] **Register-only** — manage it without changing your board, columns, or issues
+     >     (for a shared project that keeps its own structure/skills, e.g. story-spark-child).
+     > [2] **Full migration** — harvest → reconcile → re-emit into oskr's Epoch/Area/Task
+     >     board (#27 T7).
+     > (default: 1)
+
+3. **Register-only (choice 1)** — bring the repo under management with no board changes:
+   ```bash
+   EXTRA=()
+   [ -n "$PROJECT_NUMBER" ] && EXTRA+=(--project-number "$PROJECT_NUMBER")
+   [ -n "$BASE_URL" ]       && EXTRA+=(--base-url "$BASE_URL")
+   adopt-register.sh --name "$NAME" --forge "$FORGE" \
+     --owner "$OWNER" --repo "$REPO" --path "$CWD" "${EXTRA[@]+"${EXTRA[@]}"}"
+   ```
+   This writes `harness-config.json` (if not already emitted) + a registry entry and
+   touches **nothing** on the forge — the existing board is left exactly as it was.
+
+4. **Full migration (choice 2)** — run the three-step re-intake below
+   ("Adopt — full migration").
+
+### Adopt — full migration (harvest → reconcile → re-emit)
+
+When the developer chooses **full migration** at the adopt consent gate (a brownfield
+project with an off-board backlog), run the three-step re-intake. Reconcile is a
+**manual, by-hand guided** step — see `docs/adopt-reintake.md`.
+
+1. **Harvest** (scripted): `adopt-harvest.sh harvest.md` — reads every existing issue
+   into a reconciliation tasklist (pull requests excluded).
+2. **Reconcile** (manual): walk `harvest.md` with the developer per the guided
+   checklist in `docs/adopt-reintake.md`; produce `reconciled-plan.json`
+   (`epoch` + `areas[]` with slim `what`/`ac` and `tasks[]`).
+3. **Re-emit** (scripted): `adopt-reemit.sh reconciled-plan.json` — creates the Epoch
+   milestone, one `type/umbrella` + `area/<slug>` umbrella per Area, and one
+   `delivery/manual` task per task (slim `## Parent`/`## What`/`## AC`), linked beneath
+   its umbrella. The board lands **dispatch off** — review before any work starts.
+
+For a project that already runs its own board/workflow, prefer the **register-only**
+arm of the consent gate instead. The live coremyotherapy migration is Area 5.
+
+## Phase 6: Register in the oskr workspace registry
+
+The registry tracks every project this oskr **workspace** manages. It lives in the
+workspace at `<workspace>/.oskr/registry.json`, resolved by `registry.sh` — never in
+the plugin source. (The one-time relocation of any legacy in-plugin registry is run by
+`/oskr-setup` via `registry.sh migrate`, **before** any project's first `registry.sh add`.)
 
 ```bash
-REGISTRY="$HOME/WillyDev/oskr/repos/projects.json"
-mkdir -p "$(dirname "$REGISTRY")"
-[[ -f "$REGISTRY" ]] || echo '{"projects": []}' > "$REGISTRY"
+registry.sh add \
+  --name "$NAME" \
+  --path "$CWD" \
+  --forge github \
+  --owner "$OWNER" \
+  --repo "$REPO" \
+  --project-number "$PROJECT_NUMBER"
 
-NEW_ENTRY=$(jq -n \
-  --arg name "$NAME" \
-  --arg path "$CWD" \
-  --arg gh "$OWNER/$REPO" \
-  --argjson pn "$PROJECT_NUMBER" \
-  --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  '{name: $name, path: $path, github: $gh, project_number: $pn, registered_at: $ts}')
-
-jq --argjson entry "$NEW_ENTRY" '.projects += [$entry]' "$REGISTRY" > "$REGISTRY.tmp" \
-  && mv "$REGISTRY.tmp" "$REGISTRY"
-
-echo "Registered $NAME in $REGISTRY"
+echo "Registered $NAME in the workspace registry (.oskr/registry.json)"
 ```
 
 ## Phase 7: Create starter CLAUDE.md and docs scaffolding
@@ -391,12 +366,44 @@ echo "Created smoke issue #$TEST_ISSUE"
 ITEM_ID=$(find-item.sh "$TEST_ISSUE")
 [[ -n "$ITEM_ID" ]] && echo "find-item.sh OK: $ITEM_ID" || { echo "FAIL: find-item.sh returned nothing"; exit 1; }
 
-move-issue.sh "$ITEM_ID" "Research" && echo "move-issue.sh OK: moved to Research"
+move-issue.sh "$ITEM_ID" "Scoping" && echo "move-issue.sh OK: moved to Scoping"
 gh issue close "$TEST_ISSUE" --reason "not planned"
 echo "Smoke test passed. Board provisioning verified end-to-end."
 ```
 
-If smoke fails, surface the exact failure to the developer. The most likely culprits: Status field options don't match `harness-lib`'s expectations (Path 1 vs Path 2 mismatch), or `harness-config.json` has a wrong field.
+If smoke fails, surface the exact failure to the developer. The most likely culprits: the provisioned Status field options don't match `harness-lib`'s expectations, or the verb fell back to a `Phase` field but `harness-config.json` still resolves against `Status` (set `workflow.status_field_name` to `$STATUS_FIELD_NAME`).
+
+## Phase 9.5: Enable & verify "Auto-add to project" (manual — UI-only)
+
+A fresh Projects v2 board ships with the "Auto-add to project" workflow OFF, and the
+GitHub API cannot enable it. Seed issues will NOT land on the board until you flip it.
+Instruct the developer, then verify with a probe — never assume.
+
+1. Instruct:
+   > Open `<PROJECT_URL>`, then the project's `…` menu → **Workflows** →
+   > **Auto-add to project**. Enable it, set the filter to `is:issue`, target this repo
+   > (`$OWNER/$REPO`), and Save. Tell me when done.
+
+2. Verify with a probe issue, checking placement through the board-ops seam:
+   ```bash
+   source "$CLAUDE_PLUGIN_ROOT/bin/harness-lib.sh"
+   PROBE=$(gh issue create --repo "$OWNER/$REPO" \
+     --title "oskr auto-add probe (safe to close)" \
+     --body "Verifying the Auto-add workflow places new issues on the board." \
+     | grep -oE '[0-9]+$')
+   sleep 3
+   if [[ -n "$(blacksmith_find_item "$PROBE")" ]]; then
+     echo "Auto-add VERIFIED: issue #$PROBE landed on the board."
+   else
+     echo "Auto-add NOT working: issue #$PROBE is not on the board — re-check the toggle."
+   fi
+   gh issue close "$PROBE" --reason "not planned" --repo "$OWNER/$REPO"
+   ```
+
+3. If verification fails, repeat step 1 until the probe lands. Only after Auto-add is
+   verified may Phase 10 rely on it for seed issues. (If the developer opts to skip the
+   toggle, create seed issues with `blacksmith_create_issue` in Phase 10 — it both
+   creates the issue and adds it to the board — instead of relying on auto-add.)
 
 ## Phase 10: Ingest requirements doc (optional, only if path provided)
 
@@ -412,9 +419,11 @@ If `REQUIREMENTS_PATH` was provided in Phase 1:
    ```
    And set Category via project field mutation (see field IDs captured in Phase 4d).
 
-4. Place each issue in Backlog (default; new issues auto-add to the linked project, so this is automatic unless you want a different starting column).
+4. Place each issue in Backlog. With Auto-add verified in Phase 9.5, new issues land on
+   the board automatically. If Auto-add was skipped, create each seed issue via
+   `blacksmith_create_issue` (creates + adds to the board) rather than bare `gh issue create`.
 
-5. After ingestion, summarize: "Created N issues. They're all in Backlog. Move any to Research when you want investigation to start (`gh issue edit` or use the daily-standup skill once ported)."
+5. After ingestion, summarize: "Created N issues. They're all in Backlog. Move any to Scoping when you want investigation to start (`gh issue edit` or use the daily-standup skill once ported)."
 
 ## Phase 11: Final summary
 
@@ -424,13 +433,13 @@ Print a closing block:
 >
 > - Project board: `<PROJECT_URL>`
 > - Local path: `$CWD`
-> - Registered in: `$REGISTRY`
-> - Status field strategy: `<Path 1 / Path 2>`
+> - Registered in: `<workspace>/.oskr/registry.json`
+> - Status field: `$STATUS_FIELD_NAME` (augmented `Status`, or `Phase` fallback)
 > - Seed issues created: N
 >
 > Next steps:
 > - Edit `CLAUDE.md` to fill in the project description and type-check command
-> - Move any seed issue to Research when ready: `gh issue edit <N> ...` or via daily-standup (once that skill ships)
+> - Move any seed issue to Scoping when ready: `gh issue edit <N> ...` or via daily-standup (once that skill ships)
 > - To run the dispatcher against this project: `cd $CWD && oskr dispatch` (not yet implemented — tracked in oskr roadmap)
 
 ## Key Rules
@@ -438,4 +447,4 @@ Print a closing block:
 - One project per invocation. To init multiple, re-run.
 - Never run Phases 2-9 without explicit developer confirmation in Phase 1.
 - If any Phase fails partway through, stop and report what state was reached. Don't try to roll back automatically — the developer may want to inspect.
-- v1 supports fresh-repo bootstrap only. Wiring to an existing repo or board is oskr#16.
+- Onboarding mode (create-new / clone / adopt / already-init) is detected in Phase 0 via `init_detect_mode`. Adopt onboarding is built in a separate slice.

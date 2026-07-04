@@ -22,10 +22,9 @@ paths, and per-project context.
     "column_names": {
     },
     "actionable_columns": [
-      "needs_input",
-      "approval",
-      "ready",
-      "in_review"
+      "scoping",
+      "planning",
+      "ready"
     ]
   },
   "paths": {
@@ -53,7 +52,7 @@ paths, and per-project context.
 | `github.owner` / `github.repo` / `github.project_number` | GitHub board identifiers (when `forge` is `github`) |
 | `forgejo.base_url` / `forgejo.owner` / `forgejo.repo` | Forgejo instance + repo (when `forge` is `forgejo`); PAT from `$FORGEJO_TOKEN` |
 | `workflow.kind` | Only `gen-eval-9col` in v1 — see seed issue #10 for pluggable shapes |
-| `workflow.column_names` | Optional aliases when display names diverge from the canonical 9 |
+| `workflow.column_names` | Optional aliases when display names diverge from the canonical 8 |
 | `workflow.actionable_columns` | Columns the dispatcher should poll |
 | `paths.plans` / `paths.research` / `paths.plan_archive` | Per-project doc layout |
 | `agent_context` | Substituted into agent prompts as `{{PROJECT_NAME}}` and `{{TECH_STACK}}` |
@@ -67,3 +66,20 @@ paths, and per-project context.
 - The harness is opinionated about the 9-phase workflow shape and the
   two human gates; it is flexible about display names and which
   columns the dispatcher polls.
+
+## Global config — `.oskr/config.json` (workspace tier)
+
+Written once by `/oskr-setup` (`bin/oskr-setup.sh`); read as the **lower-precedence**
+default layer by the two-tier resolver (project `harness-config.json` always wins).
+Holds only **non-secret** shared defaults — credentials live in the workspace `.env`
+(`FORGEJO_TOKEN`) / the `gh` keychain, never here.
+
+```jsonc
+{
+  "version": 1,
+  "forge": "github",              // default backend for new projects
+  "base_branch": "main",          // default base branch
+  "github":  { "owner": "" },     // optional default GitHub owner
+  "forgejo": { "base_url": "" }   // optional default Forgejo base URL
+}
+```
