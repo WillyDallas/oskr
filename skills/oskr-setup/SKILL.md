@@ -59,15 +59,16 @@ OSKR_FORGEJO_BASE_URL="${OSKR_FORGEJO_BASE_URL:-}" \
 ```
 
 Confirm the result: `.oskr/config.json` populated, `.oskr/registry.json` is
-`{"projects": []}`, and `projects/ hjarne/ learning/` exist.
+`{"projects": []}`, `projects/ learning/` exist, and `hjarne/` is stamped
+(`hjarne/schema.md` present — the verb runs `bin/hjarne-skeleton.sh`).
 
 ## Phase 4: Brain / teach — delegate only if present, never block
 
 These belong to later Areas (brain #28, teach #30) and may not exist yet.
 
-- **Brain:** **if present** (a brain-setup skill is discoverable), invoke it to populate
-  `hjarne/`; otherwise leave the empty `hjarne/` skeleton and say it can be set up when
-  Area #28 lands. This **never blocks** setup.
+- **Brain:** the skeleton verb already stamped `hjarne/` (Phase 3). **If present** (a
+  brain-setup skill is discoverable), invoke it for any further population; otherwise the
+  stamped skeleton stands on its own. This **never blocks** setup.
 - **Teach:** same rule — **if present**, invoke the teach/learning setup for `learning/`;
   otherwise **skip cleanly**. Their absence never blocks completion.
 

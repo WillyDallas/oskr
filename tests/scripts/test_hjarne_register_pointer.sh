@@ -46,8 +46,8 @@ hjarne_register_pointer '28' "$C1" '28'
 cmp -s "$DIGEST" "$WS/digest.snapshot" \
   || { echo "FAIL: 2nd run mutated digest.md bytes" >&2; exit 1; }
 
-# --- absent: brain dir NOT stamped -> no-op, 0 files written, exit 0 under set -e ---
-mkdir -p "$WS2/.oskr"                     # workspace marker present, brain NOT stamped
+# --- absent: no brain dir at all -> no-op, 0 files written, exit 0 under set -e ---
+mkdir -p "$WS2/.oskr"                     # workspace marker present, brain absent
 export OSKR_WORKSPACE="$WS2"
 hjarne_register_pointer '28' "$C1" '28'   # must no-op cleanly (exit 0)
 test ! -e "$WS2/hjarne" \
@@ -55,6 +55,14 @@ test ! -e "$WS2/hjarne" \
 FILES=$(find "$WS2" -type f | wc -l | tr -d ' ')
 [[ "$FILES" -eq 0 ]] \
   || { echo "FAIL: brain-absent case wrote $FILES files (expected 0)" >&2; exit 1; }
+
+# --- unstamped: brain dir EXISTS but has no schema.md -> same no-op (the stamp
+# gate, shared with hjarne_integrate: a bare mkdir'd hjarne/ is NOT a live brain) ---
+mkdir -p "$WS2/hjarne"
+hjarne_register_pointer '28' "$C1" '28'   # must no-op cleanly (exit 0)
+FILES=$(find "$WS2" -type f | wc -l | tr -d ' ')
+[[ "$FILES" -eq 0 ]] \
+  || { echo "FAIL: unstamped-brain case wrote $FILES files (expected 0)" >&2; exit 1; }
 export OSKR_WORKSPACE="$WS"
 
 # --- never routes/writes a wiki page: the function body forbids the page writers ---

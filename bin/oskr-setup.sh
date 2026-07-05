@@ -9,14 +9,20 @@
 # existing workspace. Secrets are NEVER written here (creds live in .env / gh).
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 _setup_die() { echo "[oskr-setup] $1" >&2; exit 1; }
 
 # Create the workspace skeleton and first-create an empty project registry.
-# Idempotent on dirs (mkdir -p) and on the registry (first-create only).
+# Idempotent on dirs (mkdir -p) and on the registry (first-create only). The
+# brain is stamped via bin/hjarne-skeleton.sh — the canonical populator, itself
+# idempotent and non-clobbering — so a fresh workspace gets a STAMPED hjarne/
+# (schema.md/README.md/todo.md/log.md + wiki/raw/projects), never a bare dir.
 #   skeleton <workspace_dir>
 oskr_setup_skeleton() {
   local ws="${1:-$PWD}"
-  mkdir -p "$ws/.oskr" "$ws/projects" "$ws/hjarne" "$ws/learning"
+  mkdir -p "$ws/.oskr" "$ws/projects" "$ws/learning"
+  bash "$SCRIPT_DIR/hjarne-skeleton.sh" "$ws/hjarne" >/dev/null
   if [[ ! -f "$ws/.oskr/registry.json" ]]; then
     printf '%s\n' '{"projects": []}' > "$ws/.oskr/registry.json"
   fi
