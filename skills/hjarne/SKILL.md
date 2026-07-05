@@ -23,8 +23,10 @@ rather than reusing the issue ref.
 ## Steps
 
 1. **Distil, don't dump.** Shape the note as a `wiki/` page per `templates/hjarne/schema.md`:
-   a `# <Title>` H1, BLUF first, inline citations, `[[wikilinks]]`. The helper files exactly
-   the bytes you give it — hand it the page, not a raw transcript.
+   a `# <Title>` H1, BLUF first, inline citations, `[[wikilinks]]` — but **omit the version
+   stamp line**. The helper owns the stamp: `hjarne_write_page` injects
+   `> Written <date> · Mode: <deep|quick> · v<N>` under the H1 itself (create → v1, update →
+   v<N+1>). Hand it title + body only; a stamp of your own double-stamps the page.
 
 2. **Pick route + subdir.** `<system-slug>` is the wiki page name (`wiki/<system-slug>.md`).
    Pass `research` as the optional subdir for evidence bundles (lands under `raw/research/`);
@@ -35,6 +37,9 @@ rather than reusing the issue ref.
    source bin/harness-lib.sh   # tail-sources bin/hjarne-lib.sh
    hjarne_integrate '#70:board-dispatcher' board-dispatcher "$CONTENT"   # + optional: research
    ```
+   Full signature: `hjarne_integrate <provenance> <system-slug> <content> [subdir] [mode]` —
+   mode is `deep` (default) or `quick` and lands in the page stamp; pass `''` for subdir when
+   supplying mode alone (e.g. `... "$CONTENT" '' quick`).
    Archives the raw note, writes/updates a version-stamped `wiki/<system-slug>.md`, appends a
    dated `log.md` entry — or no-ops if that provenance was already filed. **The brain is
    optional:** if no brain resolves (no workspace, or the `hjarne/` dir isn't stamped yet),
@@ -49,7 +54,8 @@ rather than reusing the issue ref.
    hjarne_inbox_drain docs/brain-inbox
    ```
    Drain integrates each staged note and removes its file — a dedup short-circuit still counts
-   as filed and still clears the file.
+   as filed and still clears the file. Drain needs a live (stamped) brain: without one it
+   no-ops and leaves the inbox untouched, so nothing is ever dropped.
 
 **Done when:** the note resolves to a version-stamped `wiki/<system-slug>.md`, its raw bytes sit
 under `raw/` (or `raw/research/`), and `log.md` has the dated entry — or, when no brain resolved,

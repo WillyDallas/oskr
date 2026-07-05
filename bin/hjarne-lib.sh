@@ -67,11 +67,14 @@ hjarne_log_append() {
 }
 
 # Write/update a page, enforcing the version stamp (§6B): a blockquote on line 2
-# under the `# <Title>` H1. Create → v1 + today; update → read existing v<N>, write
-# v<N+1> and refresh the date to today. Content's first line is the H1 title.
-# hjarne_write_page <page-path> <content>
+# under the `# <Title>` H1 — `> Written <date> · Mode: <deep|quick> · v<N>` per
+# templates/hjarne/schema.md. Create → v1 + today; update → read existing v<N>,
+# write v<N+1> and refresh the date to today. Content's first line is the H1
+# title; the STAMP IS THE HELPER'S — callers hand title + body only, never a
+# stamp line of their own. Mode defaults to deep.
+# hjarne_write_page <page-path> <content> [mode]
 hjarne_write_page() {
-  local path="$1" content="$2"
+  local path="$1" content="$2" mode="${3:-deep}"
   local today n stampline title body
   today=$(date +%F)
   if [[ -f "$path" ]]; then
@@ -87,7 +90,7 @@ hjarne_write_page() {
   body=$(printf '%s\n' "$content" | tail -n +2)
   {
     printf '%s\n' "$title"
-    printf '> Written %s · v%s\n' "$today" "$n"
+    printf '> Written %s · Mode: %s · v%s\n' "$today" "$mode" "$n"
     printf '%s\n' "$body"
   } > "$path"
 }
@@ -114,20 +117,21 @@ hjarne_inbox_stage() {
 }
 
 # Orchestrate an integrate. When NO brain resolves — hjarne_resolve_brain fails
-# (no workspace) OR the resolved hjarne/ dir does not exist — stage the note to
-# the inbox (HJARNE_INBOX_DIR, default docs/brain-inbox/) and return 0: nothing
-# dropped, brain NEVER auto-created, nothing double-homed (the brain write path
-# is skipped entirely). Otherwise dedup-gate on the raw path (§6A), else archive
-# the raw note, route + version-stamp the wiki page, and log a dated entry. A
+# (no workspace) OR the resolved hjarne/ dir is not STAMPED (no schema.md, e.g. a
+# bare mkdir'd dir) — stage the note to the inbox (HJARNE_INBOX_DIR, default
+# docs/brain-inbox/) and return 0: nothing dropped, brain NEVER auto-created,
+# nothing double-homed (the brain write path is skipped entirely). Otherwise
+# dedup-gate on the raw path (§6A), else archive the raw note, route +
+# version-stamp the wiki page (mode defaults to deep), and log a dated entry. A
 # same-provenance re-integrate short-circuits (return 0) before any write.
-# Signature is fixed (T3/T4 code against it); the inbox target is an env default,
-# NOT a positional arg.
-# hjarne_integrate <provenance> <system-slug> <content> [subdir]
+# Signature prefix is fixed (T3/T4 code against it) — [mode] is an optional
+# trailing arg; the inbox target is an env default, NOT a positional arg.
+# hjarne_integrate <provenance> <system-slug> <content> [subdir] [mode]
 hjarne_integrate() {
-  local provenance="$1" system="$2" content="$3" subdir="${4:-}"
+  local provenance="$1" system="$2" content="$3" subdir="${4:-}" mode="${5:-deep}"
   local brain raw page inbox="${HJARNE_INBOX_DIR:-docs/brain-inbox}"
-  # No brain resolves (no workspace) OR brain dir absent → stage to inbox.
-  if ! brain=$(hjarne_resolve_brain 2>/dev/null) || [[ ! -d "$brain" ]]; then
+  # No brain resolves (no workspace) OR brain unstamped → stage to inbox.
+  if ! brain=$(hjarne_resolve_brain 2>/dev/null) || [[ ! -f "$brain/schema.md" ]]; then
     hjarne_inbox_stage "$inbox" "$provenance" "$content" "$subdir" >/dev/null || return 1
     return 0
   fi
@@ -135,7 +139,7 @@ hjarne_integrate() {
   [[ -e "$raw" ]] && return 0   # dedup: same provenance already filed
   hjarne_archive_raw "$provenance" "$content" "$subdir" >/dev/null || return 1
   page=$(hjarne_route "$system") || return 1
-  hjarne_write_page "$page" "$content" || return 1
+  hjarne_write_page "$page" "$content" "$mode" || return 1
   hjarne_log_append "integrate $provenance → wiki/${system}.md" || return 1
 }
 
@@ -143,9 +147,15 @@ hjarne_integrate() {
 # and remove the file on success. A dedup short-circuit counts as success (integrate
 # returns 0) and STILL clears the file. System slug = the :<slug> suffix of the
 # provenance. No nullglob (bash 3.2): the [[ -e ]] guard skips an unexpanded glob.
+# Gated on a live (stamped) brain: with no schema.md there is nothing to drain
+# INTO — integrate's inbox fallback would re-stage each note to its own
+# provenance-keyed path and the rm below would then delete it (note dropped).
 # hjarne_inbox_drain <inbox-dir>
 hjarne_inbox_drain() {
-  local inbox="$1" file meta provenance subdir system content
+  local inbox="$1" file meta provenance subdir system content brain
+  if ! brain=$(hjarne_resolve_brain 2>/dev/null) || [[ ! -f "$brain/schema.md" ]]; then
+    return 0
+  fi
   [[ -d "$inbox" ]] || return 0
   for file in "$inbox"/*.md; do
     [[ -e "$file" ]] || continue
@@ -176,12 +186,13 @@ hjarne_inbox_drain() {
 hjarne_register_pointer() {
   local topic="$1" content="$2" ref="${3:-$1}"
   local brain slug today dir digest
-  # No-op gate scoped to dir-absent. hjarne_resolve_brain echoes <ws>/hjarne
+  # No-op gate scoped to brain-unstamped. hjarne_resolve_brain echoes <ws>/hjarne
   # UNCONDITIONALLY and fails only when blacksmith_workspace_dir dies; research always
   # runs in a workspace, so the resolve-fail half is effectively unreachable — the
-  # [[ -d ]] check is the gate that actually fires.
+  # schema.md stamp check (same gate as hjarne_integrate: a bare mkdir'd hjarne/ is
+  # NOT a live brain) is the gate that actually fires.
   brain=$(hjarne_resolve_brain 2>/dev/null) || return 0
-  [[ -d "$brain" ]] || return 0
+  [[ -f "$brain/schema.md" ]] || return 0
   # Slug transform — DELIBERATELY duplicated verbatim from hjarne_raw_path's inlined
   # transform (also inlined in hjarne_inbox_stage). A shared helper is OUT of scope:
   # it would edit frozen T2 code.
