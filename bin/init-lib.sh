@@ -34,9 +34,10 @@ init_detect_mode() {
 # discriminator and EXACTLY the matching per-backend block. Pure jq; no network.
 # NOTE: workflow.actionable_columns carries the live 8-column dispatcher set
 # (scoping/planning/ready) — the T5/#60 reshape landed here, the one place that
-# feeds every freshly-init'd config. workflow.kind stays "gen-eval-9col" (no code
-# reads its value; renaming it is deferred per #60's deliberate non-change).
-# project_number defaults to 0 pre-provisioning.
+# feeds every freshly-init'd config. workflow.kind is "delivery-8col" (#52; no
+# code reads its value — it labels the 8-state delivery pipeline for humans and
+# future pluggable shapes, seed issue #10). project_number defaults to 0
+# pre-provisioning.
 init_emit_config() {
   local forge="${1:-github}" name="$2" tech="${3:-}" base="${4:-main}"
   local a="${5:-}" b="${6:-}" c="${7:-}" backend
@@ -58,7 +59,7 @@ init_emit_config() {
       + $backend
       + {
           workflow: {
-            kind: "gen-eval-9col",
+            kind: "delivery-8col",
             column_names: {},
             actionable_columns: ["scoping", "planning", "ready"]
           },

@@ -18,7 +18,7 @@ paths, and per-project context.
   // (token comes from $FORGEJO_TOKEN, not this file):
   //   "forgejo": { "base_url": "https://git.example.org", "owner": "org", "repo": "name" },
   "workflow": {
-    "kind": "gen-eval-9col",
+    "kind": "delivery-8col",
     "column_names": {
     },
     "actionable_columns": [
@@ -51,7 +51,7 @@ paths, and per-project context.
 | `forge` | Backend selector: `github` (default) or `forgejo` — see [design/blacksmith.md](design/blacksmith.md) |
 | `github.owner` / `github.repo` / `github.project_number` | GitHub board identifiers (when `forge` is `github`) |
 | `forgejo.base_url` / `forgejo.owner` / `forgejo.repo` | Forgejo instance + repo (when `forge` is `forgejo`); PAT from `$FORGEJO_TOKEN` |
-| `workflow.kind` | Only `gen-eval-9col` in v1 — see seed issue #10 for pluggable shapes |
+| `workflow.kind` | Only `delivery-8col` in v1 (no code reads the value; it labels the shape) — see seed issue #10 for pluggable shapes |
 | `workflow.column_names` | Optional aliases when display names diverge from the canonical 8 |
 | `workflow.actionable_columns` | Columns the dispatcher should poll |
 | `paths.plans` / `paths.research` / `paths.plan_archive` | Per-project doc layout |
@@ -63,9 +63,10 @@ paths, and per-project context.
 - `board-constants.sh` (option-ID hardcoding) is eliminated. A new
   `harness-lib.sh` resolves column NAMES to GitHub Project v2 option
   UUIDs at runtime via a per-session in-memory cache.
-- The harness is opinionated about the 9-phase workflow shape and the
-  two human gates; it is flexible about display names and which
-  columns the dispatcher polls.
+- The harness is opinionated about the 8-column workflow shape
+  (Backlog → Scoping → Planning → Plan Approval → Ready → In Progress
+  → In Review → Done) and its human gates; it is flexible about
+  display names and which columns the dispatcher polls.
 
 ## Global config — `.oskr/config.json` (workspace tier)
 

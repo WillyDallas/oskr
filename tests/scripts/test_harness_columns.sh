@@ -58,8 +58,10 @@ PATH="$SHIM_DIR:$PATH" \
   XDG_CACHE_HOME="$CACHE_DIR2" \
   bash -c "
     source '$REPO_ROOT/bin/harness-lib.sh'
-    [[ \$(_blacksmith_github_column_option_id 'needs_input') == 'opt-needs-input' ]] || { echo FAIL: alias lookup; exit 1; }
-    [[ \$(_blacksmith_github_column_option_id 'Needs Developer Input') == 'opt-needs-input' ]] || { echo FAIL: alias literal lookup; exit 1; }
+    [[ \$(_blacksmith_github_column_option_id 'scoping') == 'opt-scoping' ]] || { echo FAIL: alias lookup; exit 1; }
+    [[ \$(_blacksmith_github_column_option_id 'Discovery') == 'opt-scoping' ]] || { echo FAIL: alias literal lookup; exit 1; }
+    [[ \$(_blacksmith_github_column_option_id 'in_review') == 'opt-in-review' ]] || { echo FAIL: alias lookup in_review; exit 1; }
+    [[ \$(_blacksmith_github_column_option_id 'PR Open') == 'opt-in-review' ]] || { echo FAIL: alias literal lookup in_review; exit 1; }
   "
 
 echo "test_blacksmith_columns: PASS"

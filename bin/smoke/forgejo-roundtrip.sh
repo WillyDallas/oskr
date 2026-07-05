@@ -29,7 +29,7 @@ CFG=$(mktemp); trap 'rm -f "$CFG"' EXIT
 cat > "$CFG" <<JSON
 { "name": "$REPO", "forge": "forgejo",
   "forgejo": { "base_url": "$BASE", "owner": "$OWNER", "repo": "$REPO" },
-  "workflow": { "kind": "gen-eval-9col", "column_names": {}, "actionable_columns": ["ready"] } }
+  "workflow": { "kind": "delivery-8col", "column_names": {}, "actionable_columns": ["ready"] } }
 JSON
 export HARNESS_CONFIG="$CFG"
 
