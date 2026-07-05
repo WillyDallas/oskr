@@ -43,8 +43,8 @@ fj_count() {
     bash -c "source '$LIB'; blacksmith_count_issues"
 }
 
-# Forgejo: the 2-issue list fixture -> 2.
-assert_eq "2" "$(fj_count "$FIX/forgejo-issues-list.json")" "forgejo count -> 2" || exit 1
+# Forgejo: the 3-issue list fixture -> 3.
+assert_eq "3" "$(fj_count "$FIX/forgejo-issues-list.json")" "forgejo count -> 3" || exit 1
 # Forgejo: no list fixture -> shim returns [] -> 0.
 assert_eq "0" "$(fj_count "")"                              "forgejo count empty -> 0" || exit 1
 

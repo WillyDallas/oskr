@@ -36,9 +36,12 @@ source "$SCRIPT_DIR/harness-lib.sh"
 # Base branch from harness-config; default main. Used by the post-run completion check.
 BASE_BRANCH=$(blacksmith_config_get '.base_branch' 2>/dev/null || echo "main")
 [[ -n "$BASE_BRANCH" && "$BASE_BRANCH" != "null" ]] || BASE_BRANCH="main"
-# In Progress display name (honors workflow.column_names aliases) — used by the
-# candidate filter (dropped-work recovery) and the completion check.
+# Display names (honor workflow.column_names aliases) — In Progress is used by
+# the candidate filter (dropped-work recovery) and the completion check; Ready
+# and Planning by the rank sort (farthest-along first).
 INPROGRESS_NAME=$(_blacksmith_display_name_for in_progress)
+READY_NAME=$(_blacksmith_display_name_for ready)
+PLANNING_NAME=$(_blacksmith_display_name_for planning)
 
 # Build the JSON array of actionable column display names from workflow.actionable_columns.
 # _blacksmith_display_name_for honors any aliases in workflow.column_names; dispatcher
@@ -71,7 +74,7 @@ fi
 #   2. Status: In Progress (recovery) < actionable columns (farthest-along first)
 #   3. Blocking count: descending (unblock the most work first)
 #   4. Age: oldest createdAt first (FIFO tiebreak, prevents starvation)
-RANKED_CANDIDATES=$(echo "$BOARD_STATE" | jq --argjson actionable "$ACTIONABLE_NAMES_JSON" --arg inprogress "$INPROGRESS_NAME" '
+RANKED_CANDIDATES=$(echo "$BOARD_STATE" | jq --argjson actionable "$ACTIONABLE_NAMES_JSON" --arg inprogress "$INPROGRESS_NAME" --arg ready "$READY_NAME" --arg planning "$PLANNING_NAME" '
   [.items[]
     | select(.number != null)
     | select(
@@ -89,7 +92,7 @@ RANKED_CANDIDATES=$(echo "$BOARD_STATE" | jq --argjson actionable "$ACTIONABLE_N
         blocking: .blocking,
         blockedBy: .blockedBy,
         createdAt: .createdAt,
-        _s: (if .status == $inprogress then 0 elif .status == "Ready" then 1 elif .status == "Planning" then 2 else 3 end),
+        _s: (if .status == $inprogress then 0 elif .status == $ready then 1 elif .status == $planning then 2 else 3 end),
         _p: (if .priority == "High" then 1 elif .priority == "Medium" then 2 elif .priority == "Low" then 3 else 4 end),
         _b: (- .blocking)
       }

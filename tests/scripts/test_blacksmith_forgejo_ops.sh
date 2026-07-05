@@ -45,12 +45,15 @@ assert_eq "2" "$fi" "forgejo find_item -> issue number" || exit 1
 # scoped labels (status mapped to display name, scoped labels stripped, blocking=0).
 L5="$SHIM_DIR/lb.log"; : > "$L5"
 board=$(CURL_SHIM_LIST_FIXTURE="$FIX/forgejo-issues-list.json" run "$L5" "blacksmith_list_board")
-assert_eq "2"       "$(jq '.total' <<<"$board")"             "forgejo list_board total"        || exit 1
+assert_eq "3"       "$(jq '.total' <<<"$board")"             "forgejo list_board total"        || exit 1
 assert_eq "Ready"   "$(jq -r '.items[0].status' <<<"$board")" "status synthesized from label"  || exit 1
 assert_eq "p1"      "$(jq -r '.items[0].priority' <<<"$board")" "priority from label"          || exit 1
 assert_eq '["bug"]' "$(jq -c '.items[0].labels' <<<"$board")" "scoped labels stripped"         || exit 1
 assert_eq "0"       "$(jq '.items[0].blocking' <<<"$board")"  "blocking 0 (rank-only, no gate)" || exit 1
 assert_eq "Backlog" "$(jq -r '.items[1].status' <<<"$board")" "second item status"             || exit 1
+# 8-column slug map (#52): a plan_approval label must synthesize to its display
+# name — under the retired 9-col smap it fell through as the raw slug.
+assert_eq "Plan Approval" "$(jq -r '.items[2].status' <<<"$board")" "8-col slug maps to display name" || exit 1
 
 # count_actionable (config actionable_columns=[ready]) -> 1 (only #10 is in Ready).
 L6="$SHIM_DIR/ca.log"; : > "$L6"

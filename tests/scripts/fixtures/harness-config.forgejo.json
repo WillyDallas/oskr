@@ -7,7 +7,7 @@
     "repo": "sluice"
   },
   "workflow": {
-    "kind": "gen-eval-9col",
+    "kind": "delivery-8col",
     "column_names": {},
     "actionable_columns": ["ready"]
   }

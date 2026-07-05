@@ -27,8 +27,10 @@ if [[ "${HARNESS_TOKEN_REPORT:-on}" != "off" && -x "$TOKEN_REPORT_SCRIPT" ]]; th
 
   if [[ -z "$TRIGGER_SLUG" ]]; then
     slug=$(printf '%s' "$COLUMN" | tr '[:upper:]' '[:lower:]' | tr ' ' '_')
+    # Report on moves into the columns where agent work hands off to a human
+    # gate (8-column model, #52): a finished plan or a finished implementation.
     case "$slug" in
-      needs_input|approval|in_review) TRIGGER_SLUG="$slug" ;;
+      plan_approval|in_review) TRIGGER_SLUG="$slug" ;;
       *) TRIGGER_SLUG="" ;;
     esac
   fi

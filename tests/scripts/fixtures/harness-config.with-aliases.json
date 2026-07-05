@@ -6,12 +6,12 @@
     "project_number": 1
   },
   "workflow": {
-    "kind": "gen-eval-9col",
+    "kind": "delivery-8col",
     "column_names": {
-      "needs_input": "Needs Developer Input",
+      "scoping": "Discovery",
       "in_review": "PR Open"
     },
-    "actionable_columns": ["needs_input", "approval", "ready", "in_review"]
+    "actionable_columns": ["scoping", "planning", "ready"]
   },
   "paths": {
     "plans": "docs/plans",

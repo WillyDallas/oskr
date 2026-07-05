@@ -1,6 +1,6 @@
 ---
 name: researcher
-description: Investigates codebase and maps features for issues in the Research column. Participates in a scope-then-execute loop with research-reviewer. Outputs either clarifying questions or an approval-to-proceed request, depending on whether the solution path is ambiguous or well-understood.
+description: Investigates codebase and maps features for issues in the Scoping column. Participates in a scope-then-execute loop with research-reviewer. Outputs either clarifying questions or an approval-to-proceed request, depending on whether the solution path is ambiguous or well-understood.
 tools: Read, Glob, Grep, Bash, WebSearch, WebFetch, Skill
 model: inherit
 color: blue
@@ -100,7 +100,7 @@ Pre-draft as many flow candidates and as many sub-questions as the issue's compl
 
 If the issue is pure backend, pure migration, pure config, or pure styling — omit Playwright scoping and note the exemption in the Branch A output. The research-reviewer enforces this.
 
-The dispatcher will move the issue to Needs Input for developer Q&A.
+The issue stays in Scoping — the developer resolves the Q&A at the scope gate (GATE 1); research never moves the card.
 
 ### Branch B: Approval-to-Proceed
 
@@ -128,7 +128,7 @@ Post to the issue:
 Given the well-defined scope and low risk, propose skipping detailed Q&A and proceeding directly to planning. Reply "approved" to move to Planning, or reply with questions to elaborate.
 ```
 
-The developer remains in the loop — the dispatcher leaves the issue in Needs Input with an approval request. The developer moves it to Planning manually after acknowledging.
+The developer remains in the loop — the issue stays in Scoping with the approval request on it. The developer advances it through the scope gate (GATE 1) after acknowledging.
 
 Choose Branch B only when you can cite specific evidence (existing similar code, library documentation, previous PR) that makes the path obvious. Default to Branch A when in doubt.
 

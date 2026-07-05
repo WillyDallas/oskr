@@ -71,13 +71,13 @@ to `docs/_local_archive/`.
   work. Used during **In Progress**.
 - **`writing-skills`** — meta: use when authoring or editing an oskr skill.
 
-## Known drift
+## History
 
-The live board and the delivery skills above use the eight-state model, but the
-**provisioning/config layer** still encodes the old nine-column `gen-eval-9col` model:
-`harness-config.json` declares a `needs_input` actionable column, `init` provisions the
-nine-column board, and the parked autonomous dispatcher routes via retired columns.
-Tracked in [#52](https://github.com/WillyDallas/oskr/issues/52).
+The provisioning/config layer originally encoded a nine-column `gen-eval-9col` model
+(with Research / Needs Input / Approval columns); the migration to the eight-state
+model above was finished in [#52](https://github.com/WillyDallas/oskr/issues/52) —
+`workflow.kind` is now `delivery-8col`, and the parked autonomous dispatcher routes
+via the eight states.
 
 > The superseded intake skills `research-session` and `developer-input` were removed —
 > their function now lives in `research` (the agent loop), `grill` (the Q&A), and `scope`

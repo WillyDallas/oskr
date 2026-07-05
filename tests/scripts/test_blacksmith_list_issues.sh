@@ -37,7 +37,7 @@ fout=$(PATH="$SHIM_DIR:$PATH" \
   CURL_SHIM_LIST_FIXTURE="$FIX/forgejo-issues-list.json" \
   bash -c "source '$LIB'; blacksmith_list_issues")
 
-assert_eq "2"  "$(jq 'length' <<<"$fout")"         "forgejo: 2 issues"      || exit 1
+assert_eq "3"  "$(jq 'length' <<<"$fout")"         "forgejo: 3 issues"      || exit 1
 assert_eq "10" "$(jq -r '.[0].number' <<<"$fout")" "forgejo: first number"  || exit 1
 grep -qF 'type=issues' "$LOG2" || { echo "FAIL: forgejo must request type=issues (exclude PRs)" >&2; exit 1; }
 

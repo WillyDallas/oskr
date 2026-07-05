@@ -1140,9 +1140,10 @@ _blacksmith_forgejo_list_board() {
   owner=$(blacksmith_config_get '.forgejo.owner') || return 1
   repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
   raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues?type=issues&state=all&limit=100") || return 1
-  smap=$(for s in backlog research needs_input planning approval ready in_progress in_review "done"; do
+  smap=$(while IFS= read -r s; do
            printf '%s\t%s\n' "$s" "$(_blacksmith_display_name_for "$s")"
-         done | jq -R 'split("\t") | {key: .[0], value: .[1]}' | jq -sc 'from_entries')
+         done < <(_blacksmith_board_column_slugs) \
+           | jq -R 'split("\t") | {key: .[0], value: .[1]}' | jq -sc 'from_entries')
   printf '%s' "$raw" | jq -c --argjson smap "$smap" '
     [ .[]
       | ([ (.labels // [])[].name ]) as $labs

@@ -49,9 +49,9 @@ assert_eq "story-spark" "$(jq -r '.github.repo' "$CFG")"    "register-only write
 assert_eq "7"           "$(jq -r '.github.project_number' "$CFG")" "register-only writes project_number" || exit 1
 
 # Canonical workflow block (delegated to init_emit_config, T5's source of truth):
-# kind stays the stable "gen-eval-9col" token while actionable_columns carries the
+# kind is the "delivery-8col" token (#52) and actionable_columns carries the
 # live 8-column dispatcher set. Register-only must match a fresh init exactly.
-assert_eq "gen-eval-9col" "$(jq -r '.workflow.kind' "$CFG")" "register-only writes canonical workflow kind" || exit 1
+assert_eq "delivery-8col" "$(jq -r '.workflow.kind' "$CFG")" "register-only writes canonical workflow kind" || exit 1
 jq -e '.workflow.actionable_columns | any(. == "research" or . == "needs_input" or . == "approval")' "$CFG" >/dev/null \
   && { echo "FAIL: retired 9-col slug in actionable_columns" >&2; exit 1; } || true
 
@@ -80,7 +80,7 @@ PATH="$BIN:$PATH" "$BIN/adopt-register.sh" \
   --path "$FJ" --base-url https://git.squirrlylabs.dev
 assert_eq "forgejo"                       "$(jq -r '.forge' "$FJ/harness-config.json")"            "forgejo forge"   || exit 1
 assert_eq "https://git.squirrlylabs.dev"  "$(jq -r '.forgejo.base_url' "$FJ/harness-config.json")" "forgejo base_url" || exit 1
-assert_eq "gen-eval-9col"                 "$(jq -r '.workflow.kind' "$FJ/harness-config.json")"    "forgejo canonical kind" || exit 1
+assert_eq "delivery-8col"                 "$(jq -r '.workflow.kind' "$FJ/harness-config.json")"    "forgejo canonical kind" || exit 1
 
 # --- Case D: a failed emit must NOT poison a retry (atomic write) -----------
 # A non-numeric --project-number makes init_emit_config's --argjson fail AFTER an
