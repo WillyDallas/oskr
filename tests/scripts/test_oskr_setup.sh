@@ -17,9 +17,20 @@ done
 test -f "$WS/.oskr/registry.json" || { echo "FAIL: registry.json missing" >&2; exit 1; }
 assert_eq "[]" "$(jq -c '.projects' "$WS/.oskr/registry.json")" "registry empty" || exit 1
 
-# idempotent: a second skeleton run must not error or clobber an empty registry
+# brain STAMPED via hjarne-skeleton.sh, not a bare mkdir'd hjarne/ (#94)
+for f in schema.md README.md todo.md log.md; do
+  test -f "$WS/hjarne/$f" || { echo "FAIL: skeleton brain unstamped (missing hjarne/$f)" >&2; exit 1; }
+done
+for d in wiki raw projects; do
+  test -d "$WS/hjarne/$d" || { echo "FAIL: skeleton brain missing dir hjarne/$d" >&2; exit 1; }
+done
+
+# idempotent: a second skeleton run must not error or clobber an empty registry,
+# and must honor hjarne-skeleton.sh's non-clobbering contract on brain files
+echo '- 2000-01-01 — sentinel entry' >> "$WS/hjarne/log.md"
 "$SETUP" skeleton "$WS"
 assert_eq "[]" "$(jq -c '.projects' "$WS/.oskr/registry.json")" "registry survives re-skeleton" || exit 1
+grep -qF 'sentinel entry' "$WS/hjarne/log.md" || { echo "FAIL: re-skeleton clobbered hjarne/log.md" >&2; exit 1; }
 
 # ---- write-config: populate config.json from env (non-secret) ----
 WS2="$TMPROOT/ws-cfg"
@@ -59,6 +70,7 @@ OSKR_FORGE=github OSKR_GITHUB_OWNER=WillyDallas OSKR_BASE_BRANCH=main \
 for d in .oskr projects hjarne learning; do
   test -d "$WS4/$d" || { echo "FAIL: bootstrap missing dir $d" >&2; exit 1; }
 done
+test -f "$WS4/hjarne/schema.md" || { echo "FAIL: bootstrap brain unstamped (no schema.md)" >&2; exit 1; }
 assert_eq "[]"         "$(jq -c '.projects' "$WS4/.oskr/registry.json")" "bootstrap registry" || exit 1
 assert_eq "WillyDallas" "$(jq -r .github.owner "$WS4/.oskr/config.json")" "bootstrap owner"    || exit 1
 assert_eq "github"     "$(jq -r .forge "$WS4/.oskr/config.json")"        "bootstrap forge"     || exit 1
