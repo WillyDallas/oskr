@@ -18,10 +18,12 @@ LOG="$BRAIN/log.md"
 entries() { grep -cE '^- [0-9]{4}-[0-9]{2}-[0-9]{2} ' "$LOG" || true; }
 C1=$'# Board Dispatcher\n\nPolls the board.'
 
-# M6: systems note → wiki/<system>.md + raw archived
+# M6: systems note → wiki/<system>.md + raw archived; stamp carries Mode (default deep)
 hjarne_integrate '#70:board-dispatcher' board-dispatcher "$C1"
 test -f "$BRAIN/wiki/board-dispatcher.md" || { echo "FAIL: M6 page not routed to wiki" >&2; exit 1; }
 test -f "$(hjarne_raw_path '#70:board-dispatcher')" || { echo "FAIL: M6 raw not archived" >&2; exit 1; }
+sed -n 2p "$BRAIN/wiki/board-dispatcher.md" | grep -qF 'Mode: deep' \
+  || { echo "FAIL: M6 page stamp missing Mode ($(sed -n 2p "$BRAIN/wiki/board-dispatcher.md"))" >&2; exit 1; }
 
 # M6: research subdir → raw/research/
 hjarne_integrate '#71:nutrition-lit' nutrition "$C1" research
@@ -51,8 +53,8 @@ test -f "$(hjarne_raw_path '#72:move-issue')" || { echo "FAIL: M9 move-issue raw
 # brain is NOT auto-created (optional, never a hard dependency), the note is not
 # double-homed (skips the brain write path entirely), and a re-integrate stays
 # idempotent (inbox_stage is provenance-keyed). Uses a SEPARATE workspace whose
-# hjarne/ was never stamped, so hjarne_resolve_brain succeeds but the brain dir
-# is absent — the `[[ ! -d "$brain" ]]` fallback branch.
+# hjarne/ was never stamped, so hjarne_resolve_brain succeeds but no schema.md
+# exists — the `[[ ! -f "$brain/schema.md" ]]` fallback branch.
 # ---------------------------------------------------------------------------
 WS2=$(cd "$(mktemp -d)" && pwd)              # a workspace whose hjarne/ is NOT stamped
 trap 'rm -rf "$WS" "$WS2"' EXIT              # extend cleanup (fixture trap only had $WS)
@@ -76,5 +78,15 @@ grep -qF '<!-- hjarne:meta provenance=#80:move-issue' "$STAGED" || { echo "FAIL:
 # idempotent: same provenance → same inbox filename → still exactly one note
 hjarne_integrate '#80:move-issue' move-issue "$C2"
 [[ "$(inbox_files)" -eq 1 ]] || { echo "FAIL: M10 re-integrate not idempotent (expected exactly one inbox note)" >&2; exit 1; }
+
+# brain dir EXISTS but is UNSTAMPED (bare mkdir, no schema.md) → still NOT a live
+# brain: integrate stages to the inbox, never self-creates raw/wiki/log.md inside
+# the unstamped dir, and never stamps schema.md itself.
+mkdir -p "$WS2/hjarne"
+hjarne_integrate '#81:find-item' find-item "$C2"
+[[ "$(inbox_files)" -eq 2 ]] || { echo "FAIL: unstamped-dir integrate did not stage a 2nd inbox note" >&2; exit 1; }
+! test -e "$WS2/hjarne/schema.md" || { echo "FAIL: unstamped-dir integrate stamped schema.md itself" >&2; exit 1; }
+[[ -z "$(find "$WS2/hjarne" -type f 2>/dev/null)" ]] \
+  || { echo "FAIL: unstamped-dir integrate wrote into the unstamped brain" >&2; exit 1; }
 
 echo "test_hjarne_integrate: PASS"

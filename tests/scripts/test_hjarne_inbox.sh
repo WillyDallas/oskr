@@ -38,4 +38,17 @@ hjarne_inbox_drain "$INBOX"
 # M8: 2nd drain on an empty inbox is a no-op (exit 0 under set -e)
 hjarne_inbox_drain "$INBOX"
 
+# no live (stamped) brain → drain is a no-op that PRESERVES the staged note: it
+# must never let integrate's inbox fallback re-stage + rm the file (note dropped)
+WS2=$(cd "$(mktemp -d)" && pwd)              # workspace with an UNSTAMPED hjarne/
+trap 'rm -rf "$WS" "$WS2"' EXIT              # extend cleanup (fixture trap only had $WS)
+mkdir -p "$WS2/.oskr" "$WS2/hjarne"          # dir exists, no schema.md
+export OSKR_WORKSPACE="$WS2"
+F3=$(hjarne_inbox_stage "$WS2/inbox" '#81:find-item' "$C1")
+hjarne_inbox_drain "$WS2/inbox"
+test -e "$F3" || { echo "FAIL: unstamped-brain drain dropped the staged note" >&2; exit 1; }
+[[ -z "$(find "$WS2/hjarne" -type f 2>/dev/null)" ]] \
+  || { echo "FAIL: unstamped-brain drain wrote into the unstamped brain" >&2; exit 1; }
+export OSKR_WORKSPACE="$WS"
+
 echo "test_hjarne_inbox: PASS"
