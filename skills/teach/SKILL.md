@@ -1,0 +1,101 @@
+---
+name: teach
+description: Teach a topic across sessions — seed a mission and resource queue into the brain, then run interactive lessons from the workspace learning domain.
+disable-model-invocation: true
+argument-hint: "<topic> — what would you like to learn?"
+allowed-tools: Bash(source bin/harness-lib.sh*) Bash(open *) Bash(mkdir *) Bash(ls *) Bash(date *) Read Write Glob Grep WebFetch WebSearch AskUserQuestion
+---
+
+Teaching is stateful — the user learns `$ARGUMENTS` over multiple sessions. All state
+survives in two places and ONLY two places:
+
+- **Knowledge state** (mission, resources + ingest queue, glossary, learning records) —
+  hjarne pages in the brain, written through the `hjarne_*` seam.
+- **Presentation artifacts** (lessons, reference sheets, shared assets) — files under
+  the topic directory in the workspace learning domain.
+
+Never store knowledge as loose markdown in the topic directory, and never write
+presentation artifacts into the brain.
+
+## Step 0 — Resolve the learning domain (always first)
+
+```bash
+source bin/harness-lib.sh          # tail-sources hjarne-lib.sh + learning-lib.sh
+learning_resolve_root >/dev/null   # loud, instructive refusal outside a workspace
+```
+
+The resolver walks to the workspace root — it works from any directory inside the
+workspace and never trusts the CWD. **If it fails: STOP.** Relay its stderr
+instructions to the user verbatim (cd into a workspace, export `OSKR_WORKSPACE`, or
+run `/oskr:oskr-setup`) and write NOTHING — no directory, no page, no artifact.
+
+## Step 0.5 — Name the topic and reconcile (before any write)
+
+The slug that keys every page is derived from a **confirmed canonical name**, never
+from the raw `$ARGUMENTS`. A user may type a sentence or a typo (`I want to lear
+rust`); do not slug that.
+
+1. **Normalize.** Turn `$ARGUMENTS` into a short canonical topic name — fix typos,
+   drop filler (`I want to lear rust` → `Rust`).
+2. **Reconcile against existing topics:**
+   ```bash
+   learning_list_topics   # one line per topic: <slug><TAB><canonical name>
+   ```
+   Match your normalized name against this list **semantically** — it is a handful of
+   entries; read them in-context, no fuzzy library needed.
+   - **Match found** → confirm with the user via AskUserQuestion ("Continue your
+     existing **Rust** topic?"). On yes, adopt that topic's stored name verbatim.
+   - **No match** → propose the canonical name and confirm ("Start a new topic,
+     **Rust**?"). On yes, that is the name.
+3. **Fix the topic for the session** — only now derive the directory:
+   ```bash
+   TOPIC="<confirmed canonical name>"
+   TOPIC_DIR=$(learning_topic_dir "$TOPIC")
+   ```
+   Use `$TOPIC` for every `<topic>` reference below. The slug stays stable across
+   sessions because the name is **pinned** as the mission page's H1
+   (`# Mission: {Topic}`), which `learning_list_topics` reads back — so a differently
+   phrased re-invocation reconciles to the same topic instead of forking a duplicate.
+
+Done when: `$TOPIC` is a confirmed canonical name (a continued topic's, or a newly
+agreed one), `TOPIC_DIR` echoes `<workspace>/learning/<topic-slug>`, and nothing has
+been written yet — or the session ended with the refusal relayed and zero writes.
+
+## The brain contract
+
+Every knowledge write goes through the hjarne seam with a **note-unique** provenance
+of the shape `learning/<topic>:<slug>`:
+
+| Page | Provenance | System slug (wiki page) | Format spec |
+|---|---|---|---|
+| Mission | `learning/<topic>:mission` | `learning-<topic-slug>-mission` | [MISSION-FORMAT.md](./MISSION-FORMAT.md) |
+| Resources | `learning/<topic>:resources` | `learning-<topic-slug>-resources` — path from `learning_resources_page "<topic>"` | [RESOURCES-FORMAT.md](./RESOURCES-FORMAT.md) |
+| Glossary | `learning/<topic>:glossary` | `learning-<topic-slug>-glossary` | [GLOSSARY-FORMAT.md](./GLOSSARY-FORMAT.md) |
+| Learning record NNNN | `learning/<topic>:record-NNNN-<slug>` | `learning-<topic-slug>-record-NNNN-<slug>` | [LEARNING-RECORD-FORMAT.md](./LEARNING-RECORD-FORMAT.md) |
+
+- **First write** of a page: `hjarne_integrate 'learning/<topic>:<slug>' '<system-slug>' "$CONTENT"` —
+  archives the raw note, version-stamps the wiki page, logs a dated entry.
+- **Inbox-staged seed** (brain not initialized): when the brain directory is absent,
+  `hjarne_integrate` stages the note to the workspace inbox instead of writing the
+  wiki page — the resources page then does not exist and `learning_resource_mark`
+  fails with `no resources page`. Recognize that state, tell the user, and have them
+  initialize the brain and drain the inbox (`/oskr:hjarne`) before continuing — never
+  hand-create the page.
+- **Update** of an existing page: `hjarne_write_page "<page-path>" "$CONTENT"` then
+  `hjarne_log_append "<what changed>"` — never re-`integrate` (same provenance dedups
+  to a no-op).
+- **Resource queue flips**: ONLY `learning_resource_mark "<topic>" <resource-id> queued|ingested`.
+  Never edit a `status=` marker by hand, never `sed` the page, never re-seed to flip status.
+
+## Step 1 — Seed the topic (first session)
+
+1. **Mission interview.** If no mission page exists, interview the user on WHY they
+   want this (per MISSION-FORMAT.md — push back on vagueness), then integrate the
+   mission page.
+2. **Resource drop.** Ask the user for sources AND how to use each one. Each entry
+   carries a one-line annotation, a `How to use:` instruction, and the queue marker
+   `<!-- learning:resource id=<resource-slug> status=queued -->` (per
+   RESOURCES-FORMAT.md). Integrate the resources page.
+
+Done when: mission + resources pages exist in the brain (version-stamped) and every
+supplied resource has an id, a How-to-use instruction, and `status=queued`.
