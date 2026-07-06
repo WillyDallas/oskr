@@ -1,7 +1,7 @@
 # Sandboxed Teach Skill Implementation Plan
 
 **Goal:** Ship `/oskr:teach <topic>` — a user-invoked teaching skill whose knowledge state lives in the brain via the existing `hjarne_*` seam and whose workspace resolution comes from a new forge-blind learning lib, never from CWD.
-**Architecture:** A new sourceable `bin/learning-lib.sh` (resolver + resource-queue verbs) is tail-sourced by `bin/harness-lib.sh` after `hjarne-lib.sh`. The only mutation path is `learning_resource_mark`, which transforms the resources page in memory and persists exclusively through `hjarne_write_page` — the lib adds no byte-writing code for records. `skills/teach/SKILL.md` plus four colocated format specs adapt the vendored teach skill to this contract.
+**Architecture:** A new sourceable `bin/learning-lib.sh` (resolver + topic-enumeration + resource-queue verbs) is tail-sourced by `bin/harness-lib.sh` after `hjarne-lib.sh`. Topic identity is normalized: the skill derives a topic's slug from a confirmed canonical name (pinned as the mission page H1), reconciling a new invocation against existing topics via `learning_list_topics` so a differently phrased re-invocation continues the same topic instead of forking a duplicate. The only mutation path is `learning_resource_mark`, which transforms the resources page in memory and persists exclusively through `hjarne_write_page` — the lib adds no byte-writing code for records. `skills/teach/SKILL.md` plus four colocated format specs adapt the vendored teach skill to this contract.
 **Tech Stack:** bash 3.2-compatible shell (functions only, `set -euo pipefail`-safe), hermetic bash tests under `tests/scripts/` (auto-discovered by `run-tests.sh`), markdown skill files.
 **Issue:** #99 (child of Area umbrella #30, area/learning; Area base branch `WillyDallas/30`)
 
@@ -27,6 +27,8 @@
 `id` is a lowercase `[a-z0-9-]` slug; `status` is exactly `queued` or `ingested`. `learning_resource_status` parses it; `learning_resource_mark` rewrites it (in memory) and persists via `hjarne_write_page`. Both verbs validate the id against `^[a-z0-9-]+$` before touching the page. `RESOURCES-FORMAT.md` (Task 6) documents the same marker verbatim.
 
 **Page-path contract:** the resources page for topic `<topic>` is the brain wiki page `wiki/learning-<topic-slug>-resources.md`, derived via `hjarne_route`. Slugging duplicates the transform hjarne already inlines (deliberate — `bin/hjarne-lib.sh:185-187` documents that a shared helper is out of scope because it would edit frozen code).
+
+**Topic-identity model (name setting + resolution — used by Tasks 1.5, 4, 6):** a topic is keyed by its slug, but the slug is derived from a **confirmed canonical name**, never from the raw `$ARGUMENTS`. The skill normalizes the argument to a proposed name, reconciles it against existing topics via `learning_list_topics`, and only then slugs the confirmed name through `learning_topic_dir`. The canonical name is **pinned** at creation as the mission page's H1 (`# Mission: {Topic}` — MISSION-FORMAT.md line 1), which `learning_list_topics` reads back. This makes continuation robust: a later invocation phrased differently (`I want to lear rust` vs `rust`) normalizes and matches the pinned name instead of forking a duplicate `learning/i-want-to-lear-rust` topic. Matching is **in-context** over the enumerated list (a workspace holds a handful of topics) — no embeddings, no index. This is an interactive/manual-gate behavior (the normalize + confirm steps); the lib half it rides on (`learning_list_topics`) is hermetically tested.
 
 ---
 
@@ -167,6 +169,101 @@ Expected: PASS (`test_learning_resolve: PASS`). Then run the remaining ACs at th
 
 **Step 5: Commit**
 `feat(learning): add learning-lib resolver verbs (root, topic dir, resources page) (#99)`
+
+---
+
+## Task 1.5: Learning lib — topic enumeration verb
+
+**Files:**
+- Modify: `bin/learning-lib.sh` (append `learning_list_topics`)
+- Test: `tests/scripts/test_learning_topics.sh`
+
+**Dependencies:** Task 1 (same lib file). Leans on the already-wired `hjarne_*` seam to find the brain wiki (`hjarne_resolve_brain`, in scope because `harness-lib.sh` tail-sources `hjarne-lib.sh` pre-#99). Enables Task 4's Step 0.5 reconcile.
+
+**Acceptance Criteria:**
+- [ ] Run: `bash tests/scripts/test_learning_topics.sh` → Expected: exit 0
+- [ ] Run: `bash -n bin/learning-lib.sh` → Expected: exit 0
+- [ ] Forge-blind still holds: Run: `! grep -qE '\bgh (api|issue|pr|label|project)\b|\bcurl\b' bin/learning-lib.sh` → Expected: exit 0
+- [ ] Read-only (no mutation added): the Task-2 seam-purity greps still pass over the whole file — Run: `! grep -qF 'sed -i' bin/learning-lib.sh && ! grep -qE '(printf|echo|cat)[^|]*>>? ' bin/learning-lib.sh` → Expected: exit 0 (the verb prints to stdout, never redirects to a file)
+- [ ] Canonical name from the pinned H1, not the slug: asserted inside the test (name column comes from each mission page's `# Mission: {Topic}`)
+- [ ] Empty when no topics exist: a fresh workspace (no brain wiki dir) yields no output and exit 0 — asserted in the test
+
+**Step 1: Write the failing test**
+
+Create `tests/scripts/test_learning_topics.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/assert.sh"
+source "$REPO_ROOT/bin/harness-lib.sh"    # blacksmith_workspace_dir + hjarne_* helpers
+source "$REPO_ROOT/bin/learning-lib.sh"   # unit under test
+
+WS=$(cd "$(mktemp -d)" && pwd)
+trap 'rm -rf "$WS"' EXIT
+mkdir -p "$WS/.oskr"
+export OSKR_WORKSPACE="$WS"
+
+# fresh workspace: no brain wiki yet -> empty output, exit 0 (zero topics is legit)
+GOT=$(learning_list_topics)
+assert_eq "" "$GOT" "no topics in a fresh workspace"
+
+# seed two mission pages THROUGH the seam, canonical name in each H1 (the pin)
+hjarne_write_page "$(hjarne_route learning-rust-mission)" \
+  $'# Mission: Rust\n\n## Why\nShip a CLI to my team.'
+hjarne_write_page "$(hjarne_route learning-french-cooking-mission)" \
+  $'# Mission: French Cooking\n\n## Why\nHost a dinner party.'
+
+# enumeration: one "<slug>\t<canonical name>" line per topic, sorted for stability
+GOT=$(learning_list_topics | sort)
+EXPECT=$'french-cooking\tFrench Cooking\nrust\tRust'
+assert_eq "$EXPECT" "$GOT" "lists both topics with canonical names from the mission H1"
+
+# the name column is the H1 text (capitalized) — proves it is the pinned name, NOT the slug
+learning_list_topics | grep -qF $'rust\tRust' \
+  || { echo "FAIL: canonical name not read from the mission H1 (got the slug?)" >&2; exit 1; }
+
+echo "test_learning_topics: PASS"
+```
+
+**Step 2: Run test to verify it fails**
+Run: `bash tests/scripts/test_learning_topics.sh`
+Expected: FAIL — `learning_list_topics: command not found` (exit 127 in the command substitution; the substitution yields empty and the first non-empty assertion fails), because the verb is not defined yet.
+
+**Step 3: Write minimal implementation**
+
+Append to `bin/learning-lib.sh`:
+
+```bash
+# Echo one line per existing topic — "<slug><TAB><canonical name>" — the name read
+# from the topic's mission page H1 (`# Mission: {Topic}`, the pinned canonical name).
+# Enumerates the brain wiki (learning-*-mission.md). READ-ONLY: never creates the
+# brain, never mutates a page. Empty output + exit 0 when no brain/topics exist yet
+# (a fresh workspace legitimately has zero topics). The /teach reconcile step matches
+# a normalized argument against this list to continue an existing topic rather than
+# fork a duplicate.
+learning_list_topics() {
+  local brain wiki page slug name
+  brain=$(hjarne_resolve_brain 2>/dev/null) || return 0
+  wiki="$brain/wiki"
+  [[ -d "$wiki" ]] || return 0
+  for page in "$wiki"/learning-*-mission.md; do
+    [[ -e "$page" ]] || continue          # bash 3.2: skip an unexpanded glob
+    slug=$(basename "$page" .md); slug=${slug#learning-}; slug=${slug%-mission}
+    name=$(sed -n '1s/^# Mission: //p' "$page")
+    printf '%s\t%s\n' "$slug" "$name"
+  done
+}
+```
+
+**Step 4: Run test to verify it passes**
+Run: `bash tests/scripts/test_learning_topics.sh` → Expected: PASS. Re-run `bash tests/scripts/test_learning_resolve.sh` → PASS (no regression).
+
+**Step 5: Commit**
+`feat(learning): learning_list_topics — enumerate topics by pinned mission name (#99)`
 
 ---
 
@@ -453,7 +550,7 @@ Expected: PASS. Also run: `bash tests/scripts/test_hjarne_lib_wire.sh` → PASS 
 **Files:**
 - Create: `skills/teach/SKILL.md` (first half: frontmatter through Step 1)
 
-**Dependencies:** Tasks 1–3 (references `learning_topic_dir`, `learning_resources_page`, `learning_resource_mark` by name; the tail-wire makes `source bin/harness-lib.sh` sufficient).
+**Dependencies:** Tasks 1–3, and Task 1.5 (Step 0.5 reconcile calls `learning_list_topics`). References `learning_topic_dir`, `learning_list_topics`, `learning_resources_page`, `learning_resource_mark` by name; the tail-wire makes `source bin/harness-lib.sh` sufficient.
 
 **Acceptance Criteria:**
 - [ ] Run: `grep -qF 'disable-model-invocation: true' skills/teach/SKILL.md` → Expected: exit 0
@@ -462,6 +559,8 @@ Expected: PASS. Also run: `bash tests/scripts/test_hjarne_lib_wire.sh` → PASS 
 - [ ] CLI-open-lesson tool scoped: Run: `grep -qF 'Bash(open *)' skills/teach/SKILL.md` → Expected: exit 0
 - [ ] Note-unique provenance shape: Run: `grep -qF 'learning/<topic>:' skills/teach/SKILL.md` → Expected: exit 0
 - [ ] Resolver invoked by name: Run: `grep -qF 'learning_topic_dir' skills/teach/SKILL.md` → Expected: exit 0
+- [ ] Reconcile-to-continue wired: Run: `grep -qF 'learning_list_topics' skills/teach/SKILL.md` → Expected: exit 0
+- [ ] Slug keyed off the confirmed name, not the raw argument: Run: `grep -qF 'confirmed canonical name' skills/teach/SKILL.md` → Expected: exit 0
 - [ ] Queue mutations via the verb: Run: `grep -qF 'learning_resource_mark' skills/teach/SKILL.md` → Expected: exit 0
 - [ ] Refusal remedy relayed: Run: `grep -qF '/oskr:oskr-setup' skills/teach/SKILL.md` → Expected: exit 0
 - [ ] No loose-markdown knowledge store: Run: `! grep -qE '\b(MISSION|RESOURCES|GLOSSARY|NOTES)\.md\b' skills/teach/SKILL.md` → Expected: exit 0 (the `-FORMAT.md` spec references do not match)
@@ -497,8 +596,8 @@ presentation artifacts into the brain.
 ## Step 0 — Resolve the learning domain (always first)
 
 ```bash
-source bin/harness-lib.sh        # tail-sources hjarne-lib.sh + learning-lib.sh
-TOPIC_DIR=$(learning_topic_dir "<topic>")
+source bin/harness-lib.sh          # tail-sources hjarne-lib.sh + learning-lib.sh
+learning_resolve_root >/dev/null   # loud, instructive refusal outside a workspace
 ```
 
 The resolver walks to the workspace root — it works from any directory inside the
@@ -506,8 +605,37 @@ workspace and never trusts the CWD. **If it fails: STOP.** Relay its stderr
 instructions to the user verbatim (cd into a workspace, export `OSKR_WORKSPACE`, or
 run `/oskr:oskr-setup`) and write NOTHING — no directory, no page, no artifact.
 
-Done when: `TOPIC_DIR` echoes `<workspace>/learning/<topic-slug>`, or the session has
-ended with the refusal relayed and zero writes.
+## Step 0.5 — Name the topic and reconcile (before any write)
+
+The slug that keys every page is derived from a **confirmed canonical name**, never
+from the raw `$ARGUMENTS`. A user may type a sentence or a typo (`I want to lear
+rust`); do not slug that.
+
+1. **Normalize.** Turn `$ARGUMENTS` into a short canonical topic name — fix typos,
+   drop filler (`I want to lear rust` → `Rust`).
+2. **Reconcile against existing topics:**
+   ```bash
+   learning_list_topics   # one line per topic: <slug><TAB><canonical name>
+   ```
+   Match your normalized name against this list **semantically** — it is a handful of
+   entries; read them in-context, no fuzzy library needed.
+   - **Match found** → confirm with the user via AskUserQuestion ("Continue your
+     existing **Rust** topic?"). On yes, adopt that topic's stored name verbatim.
+   - **No match** → propose the canonical name and confirm ("Start a new topic,
+     **Rust**?"). On yes, that is the name.
+3. **Fix the topic for the session** — only now derive the directory:
+   ```bash
+   TOPIC="<confirmed canonical name>"
+   TOPIC_DIR=$(learning_topic_dir "$TOPIC")
+   ```
+   Use `$TOPIC` for every `<topic>` reference below. The slug stays stable across
+   sessions because the name is **pinned** as the mission page's H1
+   (`# Mission: {Topic}`), which `learning_list_topics` reads back — so a differently
+   phrased re-invocation reconciles to the same topic instead of forking a duplicate.
+
+Done when: `$TOPIC` is a confirmed canonical name (a continued topic's, or a newly
+agreed one), `TOPIC_DIR` echoes `<workspace>/learning/<topic-slug>`, and nothing has
+been written yet — or the session ended with the refusal relayed and zero writes.
 
 ## The brain contract
 
@@ -643,6 +771,7 @@ Run: all AC commands above (plus Task 4's, unchanged) → Expected: each exits 0
 **Acceptance Criteria:**
 - [ ] Run: `grep -qF 'hjarne' skills/teach/MISSION-FORMAT.md` → Expected: exit 0 (spec rewritten against the brain contract, not a workspace file)
 - [ ] Run: `grep -qF 'learning/<topic>:mission' skills/teach/MISSION-FORMAT.md` → Expected: exit 0
+- [ ] Canonical-name pin documented (the H1 is what `learning_list_topics` reads back): Run: `grep -qF 'learning_list_topics' skills/teach/MISSION-FORMAT.md` → Expected: exit 0
 - [ ] Marker matches the lib parser exactly: Run: `grep -qF '<!-- learning:resource id=' skills/teach/RESOURCES-FORMAT.md && grep -qF 'status=queued' skills/teach/RESOURCES-FORMAT.md` → Expected: exit 0
 - [ ] Per-resource usage instruction required: Run: `grep -qF 'How to use:' skills/teach/RESOURCES-FORMAT.md` → Expected: exit 0
 - [ ] Status flips route through the verb: Run: `grep -qF 'learning_resource_mark' skills/teach/RESOURCES-FORMAT.md` → Expected: exit 0
@@ -687,6 +816,10 @@ understand X" — push for the underlying outcome.}
 
 ## Rules
 
+- **The H1 is the pinned canonical name.** Line 1 `# Mission: {Topic}` IS the topic's
+  canonical name — `learning_list_topics` reads it back so a differently phrased
+  re-invocation reconciles to this topic. Set it from the name confirmed at the skill's
+  Step 0.5 and keep it stable; renaming it forks the topic.
 - **One mission per topic.** Two unrelated goals are two topics.
 - **Concrete over abstract.** "Ship a Rust CLI to my team" beats "learn Rust."
 - **Push back on vagueness.** If the user cannot articulate why, interview them
@@ -883,7 +1016,7 @@ Run: all AC commands above → Expected: each exits 0.
 
 **Acceptance Criteria:**
 - [ ] Precondition — the LOCAL Area ref resolves (see the plan-wide immutability note; `origin/WillyDallas/30` does not exist, so all diffs below pin the local ref): Run: `git rev-parse --verify WillyDallas/30` → Expected: exit 0
-- [ ] Full hermetic suite green (new tests auto-discovered): Run: `bash tests/scripts/run-tests.sh` → Expected: exit 0, output includes `test_learning_resolve`, `test_learning_queue`, `test_learning_lib_wire`
+- [ ] Full hermetic suite green (new tests auto-discovered): Run: `bash tests/scripts/run-tests.sh` → Expected: exit 0, output includes `test_learning_resolve`, `test_learning_topics`, `test_learning_queue`, `test_learning_lib_wire`
 - [ ] Forge-blind guard covers the new lib (covering test, NOT extended — it already `find`-scans all `bin/*.sh` and `bash -n`'s them): Run: `bash tests/scripts/test_backend_no_inline_gh.sh` → Expected: exit 0
 - [ ] Vendored teach source untouched vs the Area merge base: Run: `git diff --quiet WillyDallas/30...HEAD -- docs/reference/` → Expected: exit 0
 - [ ] No plugin.json bump (child PR): Run: `git diff --quiet WillyDallas/30...HEAD -- .claude-plugin/plugin.json` → Expected: exit 0
