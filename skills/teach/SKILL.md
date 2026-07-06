@@ -99,3 +99,45 @@ of the shape `learning/<topic>:<slug>`:
 
 Done when: mission + resources pages exist in the brain (version-stamped) and every
 supplied resource has an id, a How-to-use instruction, and `status=queued`.
+
+## Step 2 — The teaching loop (every session)
+
+1. **Read state first**: the mission page, learning records, glossary, and the queue
+   (`learning_resource_status "<topic>" <id>` per resource). Compute the zone of
+   proximal development from the records — never from parametric memory of the user.
+2. **Ingest before teaching**: pick the next `queued` resource whose How-to-use fits
+   the lesson, read/fetch it as its instruction says, then
+   `learning_resource_mark "<topic>" <id> ingested`. Ground the lesson in ingested
+   resources, with citations — never in parametric knowledge alone.
+3. **Author the lesson**: one self-contained HTML file at
+   `$TOPIC_DIR/lessons/NNNN-<dash-case-name>.html` (NNNN increments). Short, beautiful
+   (think Tufte), one tangible win, tied to the mission, inside the user's zone of
+   proximal development. Reuse components from `$TOPIC_DIR/assets/` (a shared
+   stylesheet is the first component every topic earns); compress durable knowledge
+   into `$TOPIC_DIR/reference/*.html`. Presentation artifacts land under `$TOPIC_DIR`
+   and nowhere else — never in the brain, never in the repo.
+4. **Open it for the user**: `open "$TOPIC_DIR/lessons/NNNN-<dash-case-name>.html"`.
+5. **Run the feedback loop**: retrieval practice, spacing, interleaving; immediate
+   feedback; quiz answers formatted so length gives no clue.
+
+Done when: the lesson file exists under `$TOPIC_DIR/lessons/`, is open for the user,
+and every resource the lesson drew on is marked `ingested`.
+
+## Write gates — records and glossary
+
+Both are gated on **demonstrated understanding**, not coverage:
+
+- **Learning record** (`learning/<topic>:record-NNNN-<slug>`): write one only when the
+  user demonstrably understood something non-trivial, disclosed prior knowledge,
+  corrected a misconception, or the mission shifted (per LEARNING-RECORD-FORMAT.md).
+  NNNN = highest existing record number for the topic, plus one.
+- **Glossary term**: promote a term only when the user can use it correctly.
+- **Supersede, never delete**: when a later record contradicts an earlier one, rewrite
+  the OLD record's page via `hjarne_write_page`, adding `Status: superseded by
+  record-NNNN`, then integrate the new record. When the mission shifts, update the
+  mission page (via `hjarne_write_page`) AND write a record — confirm with the user
+  first.
+
+Done when: the session's demonstrated learning is captured as record/glossary pages in
+the brain, the queue reflects what was actually ingested, and the topic directory
+holds only `lessons/`, `reference/`, and `assets/`.
