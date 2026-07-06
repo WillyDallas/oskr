@@ -55,3 +55,23 @@ learning_resources_page() {
   slug=$(_learning_slug "$topic")
   hjarne_route "learning-${slug}-resources"
 }
+
+# Echo one line per existing topic — "<slug><TAB><canonical name>" — the name read
+# from the topic's mission page H1 (`# Mission: {Topic}`, the pinned canonical name).
+# Enumerates the brain wiki (learning-*-mission.md). READ-ONLY: never creates the
+# brain, never mutates a page. Empty output + exit 0 when no brain/topics exist yet
+# (a fresh workspace legitimately has zero topics). The /teach reconcile step matches
+# a normalized argument against this list to continue an existing topic rather than
+# fork a duplicate.
+learning_list_topics() {
+  local brain wiki page slug name
+  brain=$(hjarne_resolve_brain 2>/dev/null) || return 0
+  wiki="$brain/wiki"
+  [[ -d "$wiki" ]] || return 0
+  for page in "$wiki"/learning-*-mission.md; do
+    [[ -e "$page" ]] || continue          # bash 3.2: skip an unexpanded glob
+    slug=$(basename "$page" .md); slug=${slug#learning-}; slug=${slug%-mission}
+    name=$(sed -n '1s/^# Mission: //p' "$page")
+    printf '%s\t%s\n' "$slug" "$name"
+  done
+}
