@@ -75,11 +75,14 @@ of the shape `learning/<topic>:<slug>`:
 
 - **First write** of a page: `hjarne_integrate 'learning/<topic>:<slug>' '<system-slug>' "$CONTENT"` —
   archives the raw note, version-stamps the wiki page, logs a dated entry.
-- **Inbox-staged seed** (brain not initialized): when the brain directory is absent,
-  `hjarne_integrate` stages the note to the workspace inbox instead of writing the
-  wiki page — the resources page then does not exist and `learning_resource_mark`
-  fails with `no resources page`. Recognize that state, tell the user, and have them
-  initialize the brain and drain the inbox (`/oskr:hjarne`) before continuing — never
+- **Brain must exist before seeding** (assume a present brain): teach writes knowledge
+  straight to the brain via the direct `hjarne_integrate` path. If the brain directory
+  is absent, `hjarne_integrate` silently stages the note to the repo-side inbox instead
+  of the wiki page — do NOT rely on that path (a drained inbox note reconstructs its
+  page path from the provenance suffix, not the topic's `learning-<slug>-…` system
+  slug, so it would not land where `learning_resources_page` expects). Treat an absent
+  brain as a precondition failure: STOP, tell the user to initialize the brain first,
+  then re-run `/oskr:teach` so the seed writes go through the direct path. Never
   hand-create the page.
 - **Update** of an existing page: `hjarne_write_page "<page-path>" "$CONTENT"` then
   `hjarne_log_append "<what changed>"` — never re-`integrate` (same provenance dedups
