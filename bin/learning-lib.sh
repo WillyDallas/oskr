@@ -87,6 +87,9 @@ _learning_check_id() {
 
 # Echo a resource's queue status (queued|ingested) parsed from the topic's
 # resources page marker: <!-- learning:resource id=<slug> status=<status> -->.
+# The match is ANCHORED to the full HTML comment (the <!-- … --> wrapper), so a
+# bare `learning:resource id=… status=…` token appearing in page prose (e.g. a
+# code fence documenting the marker) is never mistaken for a real marker.
 # Non-zero + stderr on malformed id, missing page, or unknown resource.
 # learning_resource_status <topic> <resource>
 learning_resource_status() {
@@ -98,20 +101,22 @@ learning_resource_status() {
     echo "learning: no resources page for topic '$topic' (expected $page) — seed the topic first" >&2
     return 1
   fi
-  line=$(grep -m1 -E "learning:resource id=${resource} status=(queued|ingested)" "$page" || true)
+  line=$(grep -m1 -E "<!-- learning:resource id=${resource} status=(queued|ingested) -->" "$page" || true)
   if [[ -z "$line" ]]; then
     echo "learning: unknown resource '$resource' in topic '$topic' — no marker in $page" >&2
     return 1
   fi
-  printf '%s\n' "$line" | sed -nE 's/.*status=(queued|ingested).*/\1/p'
+  printf '%s\n' "$line" | sed -nE "s/.*<!-- learning:resource id=${resource} status=(queued|ingested) -->.*/\1/p"
 }
 
 # Flip a resource's queue status. Rejects malformed ids up front, reads the page,
 # transforms it IN MEMORY (drops the line-2 version stamp — hjarne_write_page
 # re-mints it — and rewrites the marker), then persists EXCLUSIVELY via
 # hjarne_write_page, inheriting version stamping — no in-place sed, no direct
-# file writes, no heredocs: this is the lib's only mutation path. Idempotent for
-# a same-status re-mark (still a stamped rewrite).
+# file writes, no heredocs: this is the lib's only mutation path. The rewrite is
+# ANCHORED to the full <!-- … --> comment, so a bare token quoted in page prose is
+# left untouched (no silent corruption). Idempotent for a same-status re-mark
+# (still a stamped rewrite).
 # learning_resource_mark <topic> <resource> <queued|ingested>
 learning_resource_mark() {
   local topic="$1" resource="$2" status="$3"
@@ -126,15 +131,15 @@ learning_resource_mark() {
     echo "learning: no resources page for topic '$topic' (expected $page) — seed the topic first" >&2
     return 1
   fi
-  if ! grep -qE "learning:resource id=${resource} status=(queued|ingested)" "$page"; then
+  if ! grep -qE "<!-- learning:resource id=${resource} status=(queued|ingested) -->" "$page"; then
     echo "learning: unknown resource '$resource' in topic '$topic' — no marker in $page" >&2
     return 1
   fi
   content=$(awk -v id="$resource" -v st="$status" '
     NR == 2 && /^> Written / { next }
     {
-      sub("learning:resource id=" id " status=(queued|ingested)",
-          "learning:resource id=" id " status=" st)
+      sub("<!-- learning:resource id=" id " status=(queued|ingested) -->",
+          "<!-- learning:resource id=" id " status=" st " -->")
       print
     }
   ' "$page")

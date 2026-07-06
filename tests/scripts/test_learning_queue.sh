@@ -53,6 +53,32 @@ assert_exit 1 learning_resource_mark "$TOPIC" little-book done
 assert_exit 1 learning_resource_status "$TOPIC" 'Not_A_Slug'
 assert_exit 1 learning_resource_mark "$TOPIC" 'Not_A_Slug' ingested
 
+# --- regression (review finding A): the match is ANCHORED to the <!-- … --> comment.
+# A bare `learning:resource id=… status=…` token quoted in page PROSE must be neither
+# read as a marker nor rewritten by a mark. Seed a page that quotes the token both
+# BEFORE the real marker (with a different status) and AFTER it (as queued).
+PTOPIC="Prose Topic"
+PPAGE=$(learning_resources_page "$PTOPIC")
+PSEED=$'# Prose Topic Resources\n\n## Knowledge\n\nMarker format example (prose, not a real resource — shown as ingested):\n\n    learning:resource id=guide status=ingested\n\n- [Guide](https://example.com/g) <!-- learning:resource id=guide status=queued -->\n  How to use: read first. Raw form for reference: learning:resource id=guide status=queued'
+hjarne_write_page "$PPAGE" "$PSEED"
+
+# READ is anchored: status comes from the real <!-- … --> marker (queued), NOT the
+# earlier prose token that says ingested. (An unanchored grep -m1 would return ingested.)
+assert_eq queued "$(learning_resource_status "$PTOPIC" guide)" "status reads the anchored marker, not a prose token"
+
+# WRITE is anchored: mark flips ONLY the comment marker; both bare prose tokens survive.
+learning_resource_mark "$PTOPIC" guide ingested
+assert_eq ingested "$(learning_resource_status "$PTOPIC" guide)" "mark flips the anchored marker"
+[[ "$(grep -cF '<!-- learning:resource id=guide status=ingested -->' "$PPAGE")" -eq 1 ]] \
+  || { echo "FAIL: comment marker not flipped exactly once" >&2; exit 1; }
+# the bare 'after' prose token was queued and must STILL be queued (unanchored mark
+# would have flipped every occurrence, leaving zero status=queued for guide).
+grep -qF 'Raw form for reference: learning:resource id=guide status=queued' "$PPAGE" \
+  || { echo "FAIL: mark corrupted a bare prose token (anchoring failed)" >&2; exit 1; }
+# and the pre-marker prose example is untouched too
+grep -qF '    learning:resource id=guide status=ingested' "$PPAGE" \
+  || { echo "FAIL: mark corrupted the pre-marker prose example" >&2; exit 1; }
+
 # seam purity (structural): hjarne_write_page is the ONLY mutation path
 grep -qF 'hjarne_write_page' "$REPO_ROOT/bin/learning-lib.sh" \
   || { echo "FAIL: learning-lib does not call hjarne_write_page" >&2; exit 1; }
