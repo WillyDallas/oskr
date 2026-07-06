@@ -1341,3 +1341,7 @@ _blacksmith_forgejo_count_issues() {
 # --- hjarne write seam (optional sibling; tail-sourced, exit-status-neutral) ---
 _HJARNE_LIB="$(dirname "${BASH_SOURCE[0]}")/hjarne-lib.sh"
 if [[ -r "$_HJARNE_LIB" ]]; then source "$_HJARNE_LIB"; fi
+
+# --- learning-domain seam (optional sibling; tail-sourced AFTER hjarne, exit-status-neutral) ---
+_LEARNING_LIB="$(dirname "${BASH_SOURCE[0]}")/learning-lib.sh"
+if [[ -r "$_LEARNING_LIB" ]]; then source "$_LEARNING_LIB"; fi
