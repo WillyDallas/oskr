@@ -80,4 +80,34 @@ if fj_run "$SHIM_DIR/fj-open2.log" "$EMPTY" "blacksmith_pr_open_exists 'area/pip
   echo "FAIL: fj pr_open_exists rc 0 with no open PR" >&2; exit 1
 fi
 
+# --- repo_create: GitHub -----------------------------------------------------------
+L="$SHIM_DIR/gh-repo.log"; : > "$L"
+out=$(PATH="$SHIM_DIR:$PATH" HARNESS_CONFIG="$FIX/harness-config.sample.json" \
+      GH_SHIM_CALL_LOG="$L" GH_SHIM_FIXTURE="$FIX/gh-project-discovery.json" \
+      GH_SHIM_REPO_CREATE_URL="https://github.com/WillyDallas/newrepo" \
+      bash -c "source '$LIB'; blacksmith_repo_create WillyDallas newrepo")
+assert_eq 'https://github.com/WillyDallas/newrepo' "$(jq -r '.url' <<<"$out")" "gh repo_create: url" || exit 1
+grep -qF 'repo create WillyDallas/newrepo' "$L" || { echo "FAIL: gh repo_create wrong target" >&2; exit 1; }
+grep -qF -- '--private' "$L"                    || { echo "FAIL: gh repo_create not private" >&2; exit 1; }
+
+# --- repo_create: Forgejo, USER-owned (owner == authenticated login) ----------------
+fj_repo_run() {  # $1 = call log, $2 = owner arg
+  PATH="$SHIM_DIR:$PATH" HARNESS_CONFIG="$FIX/harness-config.forgejo.json" FORGEJO_TOKEN="test-token" \
+  CURL_SHIM_CALL_LOG="$1" CURL_SHIM_USER_FIXTURE="$FIX/forgejo-user.json" \
+  CURL_SHIM_REPO_CREATE_FIXTURE="$FIX/forgejo-repo-create.json" \
+  bash -c "source '$LIB'; blacksmith_repo_create $2 sluice"
+}
+L="$SHIM_DIR/fj-repo-user.log"; : > "$L"
+out=$(fj_repo_run "$L" willy)   # forgejo-user.json login = willy
+assert_eq 'https://git.squirrlylabs.dev/squirrlylabs/sluice' "$(jq -r '.url' <<<"$out")" "fj repo_create: url" || exit 1
+grep -qF '/user/repos' "$L"          || { echo "FAIL: user-owned create not POST /user/repos" >&2; exit 1; }
+grep -qF '"name":"sluice"' "$L"      || { echo "FAIL: fj repo name not sent" >&2; exit 1; }
+grep -qF '"private":true' "$L"       || { echo "FAIL: fj repo not private" >&2; exit 1; }
+
+# --- repo_create: Forgejo, ORG-owned (owner != authenticated login) -----------------
+L="$SHIM_DIR/fj-repo-org.log"; : > "$L"
+out=$(fj_repo_run "$L" squirrlylabs)
+grep -qF '/orgs/squirrlylabs/repos' "$L" || { echo "FAIL: org-owned create not POST /orgs/{org}/repos" >&2; exit 1; }
+if grep -qF '/user/repos' "$L"; then echo "FAIL: org-owned create hit /user/repos" >&2; exit 1; fi
+
 echo "test_blacksmith_pr_ops: PASS"

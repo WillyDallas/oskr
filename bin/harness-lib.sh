@@ -850,6 +850,19 @@ _blacksmith_github_pr_open_exists() {
   [[ "$n" -gt 0 ]]
 }
 
+# --- Repo creation (delivery verb; #101) --------------------------------------
+# Create a PRIVATE repo; echoes the neutral { url }. gh routes user- vs
+# org-owned itself from the owner/ prefix. Wiring this into init/oskr-setup is
+# the provisioning path (#26/#27) — out of scope here; the verb is the contract.
+#   repo_create <owner> <repo>
+_blacksmith_github_repo_create() {
+  local owner="$1" repo="$2" url
+  [[ -n "$owner" && -n "$repo" ]] || { _blacksmith_die "repo_create: owner and repo required"; return 1; }
+  url=$(gh repo create "${owner}/${repo}" --private 2>/dev/null) \
+    || { _blacksmith_die "repo_create: failed for ${owner}/${repo}"; return 1; }
+  jq -nc --arg u "$url" '{url: $u}'
+}
+
 # --- Issue creation (native; #26 slice 3) ----------------------------------
 
 # Create an issue and add it to the configured Project v2 board. Echoes the
@@ -1147,6 +1160,25 @@ _blacksmith_forgejo_pr_open_exists() {
       | jq --arg h "$head" --arg b "$base" \
           '[ .[] | select(.head.ref == $h and .base.ref == $b) ] | length') || n=0
   [[ "$n" -gt 0 ]]
+}
+
+# Forgejo repo create: org-owned (POST /orgs/{owner}/repos) when <owner> is not
+# the authenticated user, else user-owned (POST /user/repos). Reads only
+# .forgejo.base_url from config (owner comes in as the arg — at create time the
+# config's .forgejo.owner may not exist yet).   repo_create <owner> <repo>
+_blacksmith_forgejo_repo_create() {
+  local owner="$1" repo="$2" login raw payload
+  [[ -n "$owner" && -n "$repo" ]] || { _blacksmith_die "repo_create: owner and repo required"; return 1; }
+  login=$(_blacksmith_forgejo_curl GET "/user" 2>/dev/null | jq -r '.login // empty')
+  payload=$(jq -nc --arg n "$repo" '{name: $n, private: true, auto_init: false}')
+  if [[ -n "$login" && "$owner" == "$login" ]]; then
+    raw=$(_blacksmith_forgejo_curl POST "/user/repos" "$payload") \
+      || { _blacksmith_die "repo_create (forgejo): failed for user repo ${repo}"; return 1; }
+  else
+    raw=$(_blacksmith_forgejo_curl POST "/orgs/${owner}/repos" "$payload") \
+      || { _blacksmith_die "repo_create (forgejo): failed for ${owner}/${repo}"; return 1; }
+  fi
+  jq -c '{url: .html_url}' <<<"$raw"
 }
 
 # Probe whether owner/repo exists on the Forgejo instance. Returns 0 if it

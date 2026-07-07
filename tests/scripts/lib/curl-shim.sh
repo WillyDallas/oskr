@@ -47,6 +47,14 @@ if [[ "$args" == *"/issues"* ]]; then                   # POST create issue
   [[ -n "${CURL_SHIM_CREATE_FIXTURE:-}" ]] && { cat "$CURL_SHIM_CREATE_FIXTURE"; exit 0; }
   echo '{}'; exit 0
 fi
+if [[ "$args" == *"/orgs/"*"/repos"* || "$args" == *"/user/repos"* ]]; then  # repo_create
+  [[ -n "${CURL_SHIM_REPO_CREATE_FIXTURE:-}" ]] && { cat "$CURL_SHIM_REPO_CREATE_FIXTURE"; exit 0; }
+  echo '{}'; exit 0
+fi
+if [[ "$args" == *"/api/v1/user"* ]]; then      # GET authenticated user (repo_create routing)
+  [[ -n "${CURL_SHIM_USER_FIXTURE:-}" ]] && { cat "$CURL_SHIM_USER_FIXTURE"; exit 0; }
+  echo '{"login":"test-user"}'; exit 0
+fi
 if [[ -n "${CURL_SHIM_REPO_FIXTURE:-}" && "$args" == */repos/* ]]; then   # GET repo object (deps-unit assertion)
   cat "$CURL_SHIM_REPO_FIXTURE"; exit 0
 fi
