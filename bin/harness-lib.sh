@@ -810,6 +810,46 @@ _blacksmith_github_issue_remove_label() {
   gh api -X DELETE "repos/${owner}/${repo}/issues/${issue}/labels/${label}" >/dev/null 2>&1 || true
 }
 
+# --- PR create / list-merged / open-probe (delivery verbs; #101) --------------
+
+# Open a PR; echoes the neutral { number, url }. The head branch must already be
+# pushed (REST create does not push). pr_create <head> <base> <title> <body>
+_blacksmith_github_pr_create() {
+  local head="$1" base="$2" title="$3" body="${4:-}" owner repo raw
+  [[ -n "$head" && -n "$base" && -n "$title" ]] || { _blacksmith_die "pr_create: head, base and title required"; return 1; }
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/pulls" -f head="$head" -f base="$base" -f title="$title" -f body="$body" 2>/dev/null) \
+    || { _blacksmith_die "pr_create: failed ($head -> $base)"; return 1; }
+  jq -c '{number, url: .html_url}' <<<"$raw"
+}
+
+# Echo the MERGED PRs whose base is <base>, as [ { number, title, headBranch } ].
+# GitHub filters base server-side; merged = merged_at set (state=closed includes
+# unmerged closures). Single page (100), matching the other list verbs' cap.
+#   pr_list_merged <base>
+_blacksmith_github_pr_list_merged() {
+  local base="$1" owner repo raw
+  [[ -n "$base" ]] || { _blacksmith_die "pr_list_merged: base branch required"; return 1; }
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/pulls?base=${base}&state=closed&per_page=100" 2>/dev/null) \
+    || { _blacksmith_die "pr_list_merged: query failed for base $base"; return 1; }
+  jq -c '[ .[] | select(.merged_at != null) | {number, title, headBranch: .head.ref} ]' <<<"$raw"
+}
+
+# Probe: does an OPEN PR <head> -> <base> exist? rc 0 = yes, non-zero = no
+# (mirrors remote_exists; no stdout). GitHub's head filter needs owner:branch.
+#   pr_open_exists <head> <base>
+_blacksmith_github_pr_open_exists() {
+  local head="$1" base="$2" owner repo n
+  [[ -n "$head" && -n "$base" ]] || { _blacksmith_die "pr_open_exists: head and base required"; return 1; }
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  n=$(gh api "repos/${owner}/${repo}/pulls?head=${owner}:${head}&base=${base}&state=open" --jq 'length' 2>/dev/null) || n=0
+  [[ "$n" -gt 0 ]]
+}
+
 # --- Issue creation (native; #26 slice 3) ----------------------------------
 
 # Create an issue and add it to the configured Project v2 board. Echoes the
@@ -1069,6 +1109,44 @@ _blacksmith_forgejo_issue_remove_label() {
         | jq -r --arg n "$label" '[.[] | select(.name == $n)][0].id // empty')
   [[ -n "$lid" ]] || return 0
   _blacksmith_forgejo_curl DELETE "/repos/${owner}/${repo}/issues/${issue}/labels/${lid}" >/dev/null 2>&1 || true
+}
+
+# --- PR create / list-merged / open-probe (delivery verbs; #101) --------------
+
+_blacksmith_forgejo_pr_create() {
+  local head="$1" base="$2" title="$3" body="${4:-}" owner repo raw
+  [[ -n "$head" && -n "$base" && -n "$title" ]] || { _blacksmith_die "pr_create: head, base and title required"; return 1; }
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/pulls" \
+        "$(jq -nc --arg h "$head" --arg b "$base" --arg t "$title" --arg d "$body" \
+            '{head:$h, base:$b, title:$t, body:$d}')") \
+    || { _blacksmith_die "pr_create (forgejo): failed ($head -> $base)"; return 1; }
+  jq -c '{number, url: .html_url}' <<<"$raw"
+}
+
+# Forgejo's pulls list has no base filter param — filter client-side on
+# .base.ref; merged is the boolean flag. Same neutral output as the GitHub arm.
+_blacksmith_forgejo_pr_list_merged() {
+  local base="$1" owner repo raw
+  [[ -n "$base" ]] || { _blacksmith_die "pr_list_merged: base branch required"; return 1; }
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/pulls?state=closed&limit=100") \
+    || { _blacksmith_die "pr_list_merged (forgejo): query failed"; return 1; }
+  jq -c --arg b "$base" \
+    '[ .[] | select(.base.ref == $b and .merged == true) | {number, title, headBranch: .head.ref} ]' <<<"$raw"
+}
+
+_blacksmith_forgejo_pr_open_exists() {
+  local head="$1" base="$2" owner repo n
+  [[ -n "$head" && -n "$base" ]] || { _blacksmith_die "pr_open_exists: head and base required"; return 1; }
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  n=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/pulls?state=open&limit=100" 2>/dev/null \
+      | jq --arg h "$head" --arg b "$base" \
+          '[ .[] | select(.head.ref == $h and .base.ref == $b) ] | length') || n=0
+  [[ "$n" -gt 0 ]]
 }
 
 # Probe whether owner/repo exists on the Forgejo instance. Returns 0 if it

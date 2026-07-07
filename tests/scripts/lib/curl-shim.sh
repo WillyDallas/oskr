@@ -20,6 +20,10 @@ if [[ "$args" == *"/milestones"* ]]; then               # GET milestones (set_mi
   [[ -n "${CURL_SHIM_MILESTONES_FIXTURE:-}" ]] && { cat "$CURL_SHIM_MILESTONES_FIXTURE"; exit 0; }
   echo '[]'; exit 0
 fi
+if [[ "$args" == *"/pulls"* ]]; then                    # PR create / list (pr_* verbs)
+  [[ -n "${CURL_SHIM_PULLS_FIXTURE:-}" ]] && { cat "$CURL_SHIM_PULLS_FIXTURE"; exit 0; }
+  echo '[]'; exit 0
+fi
 if [[ "$args" == */issues/*/labels* ]]; then            # add issue labels (move / create / add_label)
   [[ -n "${CURL_SHIM_ISSUE_LABELS_FIXTURE:-}" ]] && { cat "$CURL_SHIM_ISSUE_LABELS_FIXTURE"; exit 0; }
   echo '[{"name":"status/backlog"}]'; exit 0

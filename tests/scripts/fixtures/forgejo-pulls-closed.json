@@ -1,0 +1,5 @@
+[
+  {"number": 71, "title": "Task 1", "merged": true, "head": {"ref": "feature/61-widget"}, "base": {"ref": "area/pipeline"}},
+  {"number": 72, "title": "Task 2", "merged": false, "head": {"ref": "feature/62-abandoned"}, "base": {"ref": "area/pipeline"}},
+  {"number": 74, "title": "Other area", "merged": true, "head": {"ref": "feature/70-other"}, "base": {"ref": "area/other"}}
+]
