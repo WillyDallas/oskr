@@ -24,7 +24,8 @@ if [[ "$args" == */issues/*/labels* ]]; then            # add issue labels (move
   [[ -n "${CURL_SHIM_ISSUE_LABELS_FIXTURE:-}" ]] && { cat "$CURL_SHIM_ISSUE_LABELS_FIXTURE"; exit 0; }
   echo '[{"name":"status/backlog"}]'; exit 0
 fi
-if [[ "$args" == */issues/*/comments* ]]; then          # post comment
+if [[ "$args" == */issues/*/comments* ]]; then          # comments: GET (issue_view) / POST (comment)
+  [[ -n "${CURL_SHIM_COMMENTS_FIXTURE:-}" ]] && { cat "$CURL_SHIM_COMMENTS_FIXTURE"; exit 0; }
   echo '{"id":1}'; exit 0
 fi
 if [[ "$args" == */repos/*/labels* ]]; then             # repo label create (ensure_label)

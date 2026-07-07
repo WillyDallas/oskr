@@ -165,6 +165,16 @@ blacksmith_provision_status_columns() { _blacksmith_dispatch provision_status_co
 blacksmith_list_issues()       { _blacksmith_dispatch list_issues "$@"; }
 blacksmith_create_milestone()  { _blacksmith_dispatch create_milestone "$@"; }
 
+# #101 delivery verbs: issue read/close/label-remove, PR create/list/probe,
+# repo create — the last raw-gh ops the delivery skills needed.
+blacksmith_issue_view()         { _blacksmith_dispatch issue_view "$@"; }
+blacksmith_issue_close()        { _blacksmith_dispatch issue_close "$@"; }
+blacksmith_issue_remove_label() { _blacksmith_dispatch issue_remove_label "$@"; }
+blacksmith_pr_create()          { _blacksmith_dispatch pr_create "$@"; }
+blacksmith_pr_list_merged()     { _blacksmith_dispatch pr_list_merged "$@"; }
+blacksmith_pr_open_exists()     { _blacksmith_dispatch pr_open_exists "$@"; }
+blacksmith_repo_create()        { _blacksmith_dispatch repo_create "$@"; }
+
 # --- column-vocabulary helpers (forge-agnostic) ----------------------------
 
 _blacksmith_normalize_slug() {
@@ -752,6 +762,54 @@ _blacksmith_github_list_issues() {
     | { number, title, state, body: (.body // ""), labels: [ (.labels // [])[] | .name ] } ]'
 }
 
+# --- Issue read/close/label-remove (delivery verbs; #101) --------------------
+
+# Echo one issue in the neutral shape:
+#   { number, title, state, stateReason, body, labels:[name], comments:[body], url }
+# Superset of the #101 minimum {title,body,labels,comments}: state/stateReason back
+# clean-up's shipped/not-planned classification; url backs its evidence links.
+# GitHub-REST casing is the neutral baseline (state lowercase; stateReason
+# completed|not_planned|null — null on forges without close reasons).
+# Comments: first 100 (single page, matching list_issues' cap), oldest first —
+# "most recent" = last.   issue_view <issue_number>
+_blacksmith_github_issue_view() {
+  local issue="$1" owner repo raw comments
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/issues/${issue}" 2>/dev/null) \
+    || { _blacksmith_die "issue_view: cannot read #$issue"; return 1; }
+  comments=$(gh api "repos/${owner}/${repo}/issues/${issue}/comments?per_page=100" 2>/dev/null) || comments='[]'
+  jq -c --argjson c "$comments" '{
+      number, title, state,
+      stateReason: (.state_reason // null),
+      body: (.body // ""),
+      labels: [ (.labels // [])[] | .name ],
+      comments: [ $c[] | .body ],
+      url: .html_url
+    }' <<<"$raw"
+}
+
+# Close an issue. reason = GitHub state_reason (completed | not_planned), default
+# completed; the Forgejo arm accepts-and-ignores it (no close-reason concept).
+# Side-effect op; no stdout; loud failure.   issue_close <issue> [reason]
+_blacksmith_github_issue_close() {
+  local issue="$1" reason="${2:-completed}" owner repo
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  gh api "repos/${owner}/${repo}/issues/${issue}" -X PATCH -f state=closed -f state_reason="$reason" >/dev/null 2>&1 \
+    || { _blacksmith_die "issue_close: failed to close #$issue"; return 1; }
+}
+
+# Remove a label from an issue by NAME (never fails the caller — mirrors the
+# issue_add_label family; an absent label is a no-op).
+#   issue_remove_label <issue> <label>
+_blacksmith_github_issue_remove_label() {
+  local issue="$1" label="$2" owner repo
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  gh api -X DELETE "repos/${owner}/${repo}/issues/${issue}/labels/${label}" >/dev/null 2>&1 || true
+}
+
 # --- Issue creation (native; #26 slice 3) ----------------------------------
 
 # Create an issue and add it to the configured Project v2 board. Echoes the
@@ -967,6 +1025,50 @@ _blacksmith_forgejo_list_issues() {
     || { _blacksmith_die "list_issues (forgejo) query failed"; return 1; }
   printf '%s' "$raw" | jq -c '[ .[]
     | { number, title, state, body: (.body // ""), labels: [ (.labels // [])[] | .name ] } ]'
+}
+
+# --- Issue read/close/label-remove (delivery verbs; #101) --------------------
+
+# Same neutral shape as the GitHub arm. Forgejo has no close reason, so
+# stateReason is always null here.   issue_view <issue_number>
+_blacksmith_forgejo_issue_view() {
+  local issue="$1" owner repo raw comments
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}") \
+    || { _blacksmith_die "issue_view (forgejo): cannot read #$issue"; return 1; }
+  comments=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}/comments" 2>/dev/null) || comments='[]'
+  jq -c --argjson c "$comments" '{
+      number, title, state,
+      stateReason: null,
+      body: (.body // ""),
+      labels: [ (.labels // [])[] | .name ],
+      comments: [ $c[] | .body ],
+      url: .html_url
+    }' <<<"$raw"
+}
+
+# Close an issue (reason accepted-and-ignored — Forgejo has no close reason).
+_blacksmith_forgejo_issue_close() {
+  local issue="$1" owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  _blacksmith_forgejo_curl PATCH "/repos/${owner}/${repo}/issues/${issue}" \
+    "$(jq -nc '{state: "closed"}')" >/dev/null \
+    || { _blacksmith_die "issue_close (forgejo): failed to close #$issue"; return 1; }
+}
+
+# Remove a label by NAME. Forgejo deletes BY LABEL ID, so resolve name -> id off
+# the issue's labels first (same id-resolution archive_item uses). Never fails
+# the caller; unresolvable name = no-op.
+_blacksmith_forgejo_issue_remove_label() {
+  local issue="$1" label="$2" owner repo lid
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  lid=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}/labels" 2>/dev/null \
+        | jq -r --arg n "$label" '[.[] | select(.name == $n)][0].id // empty')
+  [[ -n "$lid" ]] || return 0
+  _blacksmith_forgejo_curl DELETE "/repos/${owner}/${repo}/issues/${issue}/labels/${lid}" >/dev/null 2>&1 || true
 }
 
 # Probe whether owner/repo exists on the Forgejo instance. Returns 0 if it
