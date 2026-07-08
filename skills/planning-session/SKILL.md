@@ -2,7 +2,7 @@
 name: planning-session
 description: Use when producing or revising an implementation plan for a task in the Planning column. Handles a freshly-decomposed task (a `## What`/`## AC` body with an `area/*` label) or a `## Plan Rejected: Re-Plan` rejection, and runs the planner→plan-reviewer loop. Does not scope or grill — `scope` (GATE 1) owns that.
 argument-hint: "[issue-number]"
-allowed-tools: Bash(gh *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(git add docs/plans/*) Bash(git commit -m*) Bash(git status) Bash(git diff*) Bash(git rev-parse*) Agent Skill
+allowed-tools: Bash(gh api *) Bash(source bin/harness-lib.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(git add docs/plans/*) Bash(git commit -m*) Bash(git status) Bash(git diff*) Bash(git rev-parse*) Agent Skill
 ---
 
 You are running agent-only plan generation. The task was already scoped and decomposed (via `scope`), OR a prior plan was rejected with feedback. Your job is to spawn the planner/evaluator loop, post the plan, and move the task to Plan Approval. You do not ask clarifying questions or re-scope — if the input contract is missing, stop and surface the error.
@@ -11,7 +11,8 @@ You are running agent-only plan generation. The task was already scoped and deco
 
 Fetch the task — body, labels, comments:
 ```bash
-gh issue view <NUMBER> --json title,body,labels,comments
+source bin/harness-lib.sh
+blacksmith_issue_view <NUMBER>   # neutral {number,title,state,stateReason,body,labels,comments,url}
 ```
 
 Scan the most recent comments for a rejection header (most recent wins):
@@ -31,7 +32,7 @@ The plan attaches its test assertions to the **seams the umbrella PRD already na
 1. Resolve the parent umbrella number:
    - **GitHub** (native sub-issue parent): `gh api "repos/{owner}/{repo}/issues/<NUMBER>/parent" --jq '.number'`.
    - **Forgejo** (body marker): the `<!-- blacksmith:parent #N -->` line in the task body fetched above.
-2. Read the umbrella's `## Named Seams`: `gh issue view <PARENT> --json body`, then extract that section.
+2. Read the umbrella's `## Named Seams`: `blacksmith_issue_view <PARENT> | jq -r '.body'`, then extract that section.
 
 **Done when:** the umbrella's Named Seams are in context, ready to pass to the planner. If the task has no parent (a solo `area/loose` task with no umbrella, so no PRD), note "no umbrella seams" and let the planner derive assertions from the `## AC` alone.
 
@@ -205,7 +206,8 @@ The allowlist restricts `git add` to paths under `docs/plans/`, so any other mod
 
 1. Post the plan summary comment:
    ```bash
-   gh issue comment <NUMBER> --body "$(cat <<'COMMENT'
+   source bin/harness-lib.sh
+   blacksmith_issue_comment <NUMBER> "$(cat <<'COMMENT'
    ## Implementation Plan
    **Plan file**: [`docs/plans/YYYY-MM-DD-<feature>.md`](link)
 
