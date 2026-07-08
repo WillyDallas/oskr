@@ -2,7 +2,7 @@
 name: execute-plan
 description: Use when executing an approved implementation plan for an issue in the Ready column. Orchestrates the implementer/reviewer generator-evaluator loop per task, opens a PR when complete.
 argument-hint: "[issue-number]"
-allowed-tools: Bash(gh *) Bash(git *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(base-branch.sh*) Bash(sync-development.sh*) Bash(sync-worktree.sh*) BashOutput KillShell Agent SendMessage
+allowed-tools: Bash(source bin/harness-lib.sh*) Bash(git *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(base-branch.sh*) Bash(sync-development.sh*) Bash(sync-worktree.sh*) BashOutput KillShell Agent SendMessage
 ---
 
 You are executing an approved implementation plan from the project board.
@@ -19,7 +19,7 @@ This skill frequently runs inside a headless (`claude -p`) dispatch session, whe
 
 1. **Load the issue and plan**:
    - If `$ARGUMENTS` is provided, use that issue number. Otherwise ask.
-   - Fetch the issue: `gh issue view <NUMBER> --json title,body,comments`
+   - Fetch the issue: `source bin/harness-lib.sh && blacksmith_issue_view <NUMBER>`
    - Find the plan comment (the one with "## Implementation Plan" and a link to `docs/plans/`)
    - Read the plan file from the linked path
 
@@ -166,10 +166,9 @@ When all tasks pass review (and the optional gate is green):
 
 2. **Open PR targeting the base branch**:
    ```bash
-   gh pr create \
-     --base "$BASE_BRANCH" \
-     --title "<issue title>" \
-     --body "$(cat <<'EOF'
+   source bin/harness-lib.sh
+   git push -u origin "feature/<NUMBER>-<short-slug>"   # blacksmith_pr_create is REST — push first
+   PR_JSON=$(blacksmith_pr_create "feature/<NUMBER>-<short-slug>" "$BASE_BRANCH" "<issue title>" "$(cat <<'EOF'
    ## Summary
    [2-3 bullet points of what was implemented]
 
@@ -182,19 +181,20 @@ When all tasks pass review (and the optional gate is green):
    - reviewer sessions used: N, fallback respawns: M
    - [test results summary]
    EOF
-   )"
+   )")
+   PR_NUMBER=$(jq -r '.number' <<<"$PR_JSON")
    ```
 
    The PR targets the **Area branch** (a non-default branch), so `Closes #<NUMBER>` will NOT auto-close the issue on merge — GitHub/Forgejo only auto-close on the *default* branch. Use `Related: #<NUMBER>`; the child **stays open through staging** and is retired later by `land-area` (#46), which opens the `Area→main` PR whose `Closes` directives close every child + the umbrella on the single human merge. *(A solo / area-less task whose base resolved to `main` instead uses `Closes #<NUMBER>` — it merges straight to the default branch.)*
 
 3. **Post summary to issue**:
    ```bash
-   gh issue comment <NUMBER> --body "Implementation complete. PR #<PR_NUMBER> opened targeting \`$BASE_BRANCH\`."
+   blacksmith_issue_comment <NUMBER> "Implementation complete. PR #$PR_NUMBER opened targeting \`$BASE_BRANCH\`."
    ```
 
    If this was a resume run, clear the recovery label now that a PR exists (no-op if absent):
    ```bash
-   gh issue edit <NUMBER> --remove-label dispatch-incomplete 2>/dev/null || true
+   blacksmith_issue_remove_label <NUMBER> dispatch-incomplete
    ```
 
 4. **Move the issue to In Review**:
