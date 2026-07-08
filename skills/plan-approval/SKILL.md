@@ -3,7 +3,7 @@ name: plan-approval
 description: "Release planned tasks into Ready — a whole Area at once (umbrella#) or one child. The plan-approval gate (GATE 2)."
 disable-model-invocation: true
 argument-hint: "[umbrella# | child#]"
-allowed-tools: Bash(gh *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(list-children.sh*) Read Grep AskUserQuestion
+allowed-tools: Bash(source bin/harness-lib.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(list-children.sh*) Read Grep AskUserQuestion
 ---
 
 **GATE 2 — soft, batchable.** You release planned tasks from **Plan Approval** into **Ready**. You do **not** execute — approval → Ready is a *transition*, not a trigger; `/execute-plan` (or the dispatcher) runs the code afterward. "Soft" means an Area's children clear in one pass; the v2 auto-proceed bypass is deferred.
@@ -13,7 +13,7 @@ allowed-tools: Bash(gh *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(list-chi
 Read the issue number from `$ARGUMENTS` (ask if missing). Discriminate by label:
 
 ```bash
-gh issue view <n> --json labels
+source bin/harness-lib.sh && blacksmith_issue_view <n> | jq '.labels'
 ```
 
 - Carries **`type/umbrella`** → **Area batch path** (`<n>` is the umbrella).
@@ -23,7 +23,7 @@ gh issue view <n> --json labels
 
 1. **Enumerate.** `list-children.sh <umbrella#>` → children (`number`, `state`, `title`, `url`). Drop `state == closed` (already delivered).
 
-2. **Walk the batch.** For each open child, read its plan — the `## Implementation Plan` / `## Plan Revised` comment (`gh issue view <child#> --json comments`) and the `docs/plans/<id>.md` it links. Present **one line per child**: title · the seam/AC that carries risk · the **board column** it sits in · any **blockedBy** the board shows. Call out non-mechanical ACs (hard to verify in a test/grep) and any child still blocked — those are the ones not to release. **End the turn here** with an open invitation for questions; do not bundle the decision into the walkthrough (bundling collapses review into a snap judgment). The developer's board is the source of truth for each child's column and blockedBy.
+2. **Walk the batch.** For each open child, read its plan — the `## Implementation Plan` / `## Plan Revised` comment (`blacksmith_issue_view <child#> | jq '.comments'`) and the `docs/plans/<id>.md` it links. Present **one line per child**: title · the seam/AC that carries risk · the **board column** it sits in · any **blockedBy** the board shows. Call out non-mechanical ACs (hard to verify in a test/grep) and any child still blocked — those are the ones not to release. **End the turn here** with an open invitation for questions; do not bundle the decision into the walkthrough (bundling collapses review into a snap judgment). The developer's board is the source of truth for each child's column and blockedBy.
 
 3. **Decide** (next turn, after the developer engages): which children to release? Default = every open child **in Plan Approval with no open blocker**.
 
@@ -61,7 +61,8 @@ Then two ops on the child, then stop:
 
 1. Post the rejection comment — the header is the **routing contract**, preserve it exactly:
    ```bash
-   gh issue comment <child#> --body "$(cat <<'COMMENT'
+   source bin/harness-lib.sh
+   blacksmith_issue_comment <child#> "$(cat <<'COMMENT'
    ## Plan Rejected: Re-Plan
 
    <verbatim feedback from Prompt 1>

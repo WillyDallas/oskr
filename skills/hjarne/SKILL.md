@@ -77,8 +77,8 @@ as `<content>`:
 ```bash
 source bin/harness-lib.sh   # tail-sources bin/hjarne-lib.sh
 # re-fetch the just-posted "## Research Digest" comment body for issue 28
-DIGEST=$(gh issue view 28 --json comments \
-  --jq '[.comments[] | select(.body | startswith("## Research Digest")) | .body] | last')
+DIGEST=$(blacksmith_issue_view 28 \
+  | jq -r '[.comments[] | select(startswith("## Research Digest"))] | last')
 hjarne_register_pointer '28' "$DIGEST" '28'
 ```
 

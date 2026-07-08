@@ -1,0 +1,9 @@
+{
+  "number": 61,
+  "title": "Fix the widget",
+  "state": "closed",
+  "state_reason": "completed",
+  "body": "## What\nFix it.",
+  "html_url": "https://github.com/WillyDallas/oskr/issues/61",
+  "labels": [{"name": "area/pipeline"}, {"name": "dispatch-incomplete"}]
+}

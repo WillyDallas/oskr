@@ -1,0 +1,8 @@
+{
+  "number": 61,
+  "title": "Fix the widget",
+  "state": "closed",
+  "body": "## What\nFix it.",
+  "html_url": "https://git.squirrlylabs.dev/squirrlylabs/sluice/issues/61",
+  "labels": [{"id": 9, "name": "area/pipeline"}, {"id": 12, "name": "dispatch-incomplete"}]
+}

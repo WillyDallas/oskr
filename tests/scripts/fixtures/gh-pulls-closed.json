@@ -1,0 +1,5 @@
+[
+  {"number": 71, "title": "Task 1", "merged_at": "2026-07-01T00:00:00Z", "head": {"ref": "feature/61-widget"}, "base": {"ref": "area/pipeline"}},
+  {"number": 72, "title": "Task 2", "merged_at": null, "head": {"ref": "feature/62-abandoned"}, "base": {"ref": "area/pipeline"}},
+  {"number": 73, "title": "Task 3", "merged_at": "2026-07-02T00:00:00Z", "head": {"ref": "feature/63-seam"}, "base": {"ref": "area/pipeline"}}
+]
