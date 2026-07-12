@@ -1557,3 +1557,48 @@ if [[ -r "$_HJARNE_LIB" ]]; then source "$_HJARNE_LIB"; fi
 # --- learning-domain seam (optional sibling; tail-sourced AFTER hjarne, exit-status-neutral) ---
 _LEARNING_LIB="$(dirname "${BASH_SOURCE[0]}")/learning-lib.sh"
 if [[ -r "$_LEARNING_LIB" ]]; then source "$_LEARNING_LIB"; fi
+
+# --- workspace .env auto-load (#102) ---------------------------------------
+# Load <workspace>/.env into the process environment at source time. Each
+# `KEY=VAL` line SETs and EXPORTs KEY, but ONLY when KEY is currently unset —
+# a pre-existing process-env value always wins. Values are assigned literally
+# (never eval'd, never echoed). Quiet no-op outside a workspace (mirrors
+# blacksmith_global_config_path). Idempotent via a once-guard. Safe under set -u.
+blacksmith_load_workspace_env() {
+  [[ -n "${_BLACKSMITH_ENV_LOADED:-}" ]] && return 0
+  _BLACKSMITH_ENV_LOADED=1
+  local ws envfile line key val
+  ws=$(blacksmith_workspace_dir 2>/dev/null) || return 0
+  envfile="$ws/.env"
+  [[ -f "$envfile" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # trim leading whitespace
+    line="${line#"${line%%[![:space:]]*}"}"
+    # skip blanks and comments
+    [[ -z "$line" || "$line" == '#'* ]] && continue
+    # tolerate a leading `export `
+    line="${line#export }"
+    # require a KEY=VALUE shape
+    [[ "$line" == *=* ]] || continue
+    key="${line%%=*}"
+    val="${line#*=}"
+    # trim trailing whitespace off the key
+    key="${key%"${key##*[![:space:]]}"}"
+    # KEY must be a valid shell identifier
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    # pre-existing process env wins: only set when currently UNSET
+    [[ -n "${!key+x}" ]] && continue
+    # strip one layer of matching surrounding quotes
+    if [[ ${#val} -ge 2 && "$val" == '"'*'"' ]]; then
+      val="${val:1:${#val}-2}"
+    elif [[ ${#val} -ge 2 && "$val" == "'"*"'" ]]; then
+      val="${val:1:${#val}-2}"
+    fi
+    export "$key=$val"
+  done < "$envfile"
+  return 0
+}
+
+# Auto-load at source time. Failure-tolerant: the ~22 bin/ scripts source this
+# under `set -euo pipefail`, so a load hiccup must never abort them.
+blacksmith_load_workspace_env || true
