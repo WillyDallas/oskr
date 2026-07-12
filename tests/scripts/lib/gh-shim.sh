@@ -46,6 +46,24 @@ if [[ "$args" == *addProjectV2ItemById* ]]; then
   printf '%s' '{"data":{"addProjectV2ItemById":{"item":{"id":"PVTI_created"}}}}' | emit
   exit 0
 fi
+if [[ "$args" == *createProjectV2Field* ]]; then       # taxonomy/Phase field create (provision_board)
+  printf '%s' '{"data":{"createProjectV2Field":{"projectV2Field":{"id":"F_new","name":"created"}}}}' | emit
+  exit 0
+fi
+if [[ "$args" == *createProjectV2* && -n "${GH_SHIM_CREATE_PROJECT_FIXTURE:-}" ]]; then  # createProjectV2 (provision_board); Field route above matches first
+  emit < "$GH_SHIM_CREATE_PROJECT_FIXTURE"; exit 0
+fi
+if [[ "$args" == *linkProjectV2ToRepository* ]]; then  # project->repo link (provision_board)
+  printf '%s' '{"data":{"linkProjectV2ToRepository":{"repository":{"id":"R_linked"}}}}' | emit
+  exit 0
+fi
+if [[ "$args" == *updateProjectV2Field* ]]; then       # Status augment (provision_status_columns)
+  printf '%s' '{"data":{"updateProjectV2Field":{"projectV2Field":{"id":"F_status","name":"Status"}}}}' | emit
+  exit 0
+fi
+if [[ "$args" == *"owner { id }"* && -n "${GH_SHIM_REPO_IDS_FIXTURE:-}" ]]; then  # repo+owner node ids (provision_board)
+  emit < "$GH_SHIM_REPO_IDS_FIXTURE"; exit 0
+fi
 if [[ "$args" == */milestones* && "$args" == *"title="* ]]; then   # POST create milestone (opt-in)
   emit < "${GH_SHIM_CREATE_MILESTONE_FIXTURE:-/dev/null}"; exit 0
 fi

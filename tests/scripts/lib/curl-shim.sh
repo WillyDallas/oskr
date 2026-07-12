@@ -32,7 +32,8 @@ if [[ "$args" == */issues/*/comments* ]]; then          # comments: GET (issue_v
   [[ -n "${CURL_SHIM_COMMENTS_FIXTURE:-}" ]] && { cat "$CURL_SHIM_COMMENTS_FIXTURE"; exit 0; }
   echo '{"id":1}'; exit 0
 fi
-if [[ "$args" == */repos/*/labels* ]]; then             # repo label create (ensure_label)
+if [[ "$args" == */repos/*/labels* ]]; then             # repo labels: GET list (board_schema_ok) / POST create (ensure_label)
+  [[ -n "${CURL_SHIM_REPO_LABELS_FIXTURE:-}" ]] && { cat "$CURL_SHIM_REPO_LABELS_FIXTURE"; exit 0; }
   echo '{"id":1}'; exit 0
 fi
 if [[ "$args" == *"/issues?"* ]]; then                  # GET issues list (list_board / count_actionable)

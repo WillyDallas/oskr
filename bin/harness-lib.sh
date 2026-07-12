@@ -175,6 +175,13 @@ blacksmith_pr_list_merged()     { _blacksmith_dispatch pr_list_merged "$@"; }
 blacksmith_pr_open_exists()     { _blacksmith_dispatch pr_open_exists "$@"; }
 blacksmith_repo_create()        { _blacksmith_dispatch repo_create "$@"; }
 
+# #103 onboarding probes (init-project interview gates) + full board provisioning.
+# The probes read coordinates from the config the interview points HARNESS_CONFIG
+# at — they are reads, never writes.
+blacksmith_forge_reachable()    { _blacksmith_dispatch forge_reachable "$@"; }
+blacksmith_deps_unit_ok()       { _blacksmith_dispatch deps_unit_ok "$@"; }
+blacksmith_board_schema_ok()    { _blacksmith_dispatch board_schema_ok "$@"; }
+
 # --- column-vocabulary helpers (forge-agnostic) ----------------------------
 
 _blacksmith_normalize_slug() {
@@ -426,6 +433,79 @@ _blacksmith_github_provision_status_columns() {
   " -f projectId="$project_id" >/dev/null 2>&1 \
     || { _blacksmith_die "provision_status_columns: could not augment Status nor create Phase"; return 1; }
   printf 'Phase'
+}
+
+# Create the Priority/Size/Category single-selects on a fresh project — the
+# taxonomy half of full board provisioning (moved out of init's prose, #103).
+_blacksmith_github_provision_taxonomy_fields() {
+  local project_id="$1" spec fname
+  [[ -n "$project_id" ]] || { _blacksmith_die "provision_taxonomy: project node id required"; return 1; }
+  for spec in \
+    'Priority|[{ name: "P1", color: RED, description: "Highest" },{ name: "P2", color: YELLOW, description: "Medium" },{ name: "P3", color: GREEN, description: "Lowest" }]' \
+    'Size|[{ name: "XS", color: GREEN, description: "< 1hr" },{ name: "S", color: BLUE, description: "1-4hr" },{ name: "M", color: YELLOW, description: "Half day" },{ name: "L", color: ORANGE, description: "Full day" },{ name: "XL", color: RED, description: "Multi-day" }]' \
+    'Category|[{ name: "Feature", color: BLUE, description: "" },{ name: "Bug", color: RED, description: "" },{ name: "Chore", color: GRAY, description: "" },{ name: "Spike", color: PURPLE, description: "" },{ name: "Docs", color: GREEN, description: "" }]'
+  do
+    fname="${spec%%|*}"
+    gh api graphql -f query="
+      mutation(\$projectId: ID!) {
+        createProjectV2Field(input: {
+          projectId: \$projectId, dataType: SINGLE_SELECT, name: \"$fname\",
+          singleSelectOptions: ${spec#*|}
+        }) { projectV2Field { ... on ProjectV2SingleSelectField { id name } } }
+      }" -f projectId="$project_id" >/dev/null 2>&1 \
+      || { _blacksmith_die "provision_board: creating field '$fname' failed"; return 1; }
+  done
+}
+
+# Provision a full Projects v2 board for the configured repo: create the project
+# (titled "oskr — <name>"), link it to the repo, provision the 8 status columns,
+# create the Priority/Size/Category taxonomy. Echoes the backend-neutral result
+#   {"project_number": N, "url": U, "status_field": "Status"|"Phase"}
+# so the caller can backfill project_number into the config (the #103 hole).
+# The GitHub arm of the same verb Forgejo already had.  provision_board
+_blacksmith_github_provision_board() {
+  local owner repo name ids repo_id owner_id resp project_id number url status_field
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  name=$(blacksmith_config_get '.name' 2>/dev/null) || name="$repo"
+  # shellcheck disable=SC2016
+  ids=$(gh api graphql -f query='
+    query($owner: String!, $repo: String!) {
+      repository(owner: $owner, name: $repo) { id owner { id } }
+    }
+  ' -F owner="$owner" -F repo="$repo" 2>/dev/null) \
+    || { _blacksmith_die "provision_board: cannot resolve node ids for ${owner}/${repo}"; return 1; }
+  repo_id=$(jq -er '.data.repository.id' <<<"$ids" 2>/dev/null) \
+    || { _blacksmith_die "provision_board: repo ${owner}/${repo} not found"; return 1; }
+  owner_id=$(jq -er '.data.repository.owner.id' <<<"$ids") || return 1
+
+  # shellcheck disable=SC2016
+  resp=$(gh api graphql -f query='
+    mutation($ownerId: ID!, $title: String!) {
+      createProjectV2(input: { ownerId: $ownerId, title: $title }) {
+        projectV2 { id number url }
+      }
+    }
+  ' -f ownerId="$owner_id" -f title="oskr — ${name}" 2>/dev/null) \
+    || { _blacksmith_die "provision_board: createProjectV2 failed"; return 1; }
+  project_id=$(jq -er '.data.createProjectV2.projectV2.id' <<<"$resp") || return 1
+  number=$(jq -er '.data.createProjectV2.projectV2.number' <<<"$resp") || return 1
+  url=$(jq -er '.data.createProjectV2.projectV2.url' <<<"$resp") || return 1
+
+  # shellcheck disable=SC2016
+  gh api graphql -f query='
+    mutation($projectId: ID!, $repoId: ID!) {
+      linkProjectV2ToRepository(input: { projectId: $projectId, repositoryId: $repoId }) {
+        repository { id }
+      }
+    }
+  ' -f projectId="$project_id" -f repoId="$repo_id" >/dev/null 2>&1 \
+    || { _blacksmith_die "provision_board: linking project to ${owner}/${repo} failed"; return 1; }
+
+  status_field=$(_blacksmith_github_provision_status_columns "$project_id") || return 1
+  _blacksmith_github_provision_taxonomy_fields "$project_id" || return 1
+  jq -nc --argjson n "$number" --arg u "$url" --arg s "$status_field" \
+    '{project_number: $n, url: $u, status_field: $s}'
 }
 
 # --- Compound operations ---------------------------------------------------
@@ -863,6 +943,41 @@ _blacksmith_github_repo_create() {
   jq -nc --arg u "$url" '{url: $u}'
 }
 
+# --- Onboarding probes (#103) -----------------------------------------------
+
+# Verify forge auth + reachability; echoes the authenticated login. The
+# interview's secrets gate: non-zero means instruct-and-verify, never proceed.
+_blacksmith_github_forge_reachable() {
+  local login
+  login=$(gh api user --jq '.login' 2>/dev/null) \
+    || { _blacksmith_die "forge_reachable: no authenticated GitHub user; run: gh auth login"; return 1; }
+  printf '%s\n' "$login"
+}
+
+# GitHub sub-issues/dependencies are native — nothing to switch on.
+_blacksmith_github_deps_unit_ok() { printf 'ok\n'; }
+
+# Echo the board-schema verdict: "ok" (all 8 canonical columns present), "none"
+# (no board to inspect), or "mismatch: missing <names>". Echoes, never gates —
+# the caller decides what a mismatch means (adopt treats it as context:
+# register-only keeps the board, full migration replaces it).
+_blacksmith_github_board_schema_ok() {
+  local number raw options slug name missing=""
+  number=$(blacksmith_config_get '.github.project_number' 2>/dev/null) || number=0
+  [[ "$number" =~ ^[0-9]+$ && "$number" -gt 0 ]] || { printf 'none\n'; return 0; }
+  raw=$(_blacksmith_github_discover_raw 2>/dev/null) || { printf 'none\n'; return 0; }
+  options=$(jq -r '
+    .data.repository.projectV2.fields.nodes[]?
+    | select(.name == "Status" or .name == "Phase") | .options[]?.name
+  ' <<<"$raw" 2>/dev/null) || options=""
+  [[ -n "$options" ]] || { printf 'none\n'; return 0; }
+  while IFS= read -r slug; do
+    name=$(_blacksmith_default_name_for_slug "$slug") || return 1
+    grep -qxF "$name" <<<"$options" || missing+="${missing:+, }$name"
+  done < <(_blacksmith_board_column_slugs)
+  if [[ -z "$missing" ]]; then printf 'ok\n'; else printf 'mismatch: missing %s\n' "$missing"; fi
+}
+
 # --- Issue creation (native; #26 slice 3) ----------------------------------
 
 # Create an issue and add it to the configured Project v2 board. Echoes the
@@ -1179,6 +1294,48 @@ _blacksmith_forgejo_repo_create() {
       || { _blacksmith_die "repo_create (forgejo): failed for ${owner}/${repo}"; return 1; }
   fi
   jq -c '{url: .html_url}' <<<"$raw"
+}
+
+# --- Onboarding probes (#103) — Forgejo -------------------------------------
+
+# Verify token + instance reachability in one authenticated probe; echoes the
+# login. Distinguishes the two failure modes the interview instructs on:
+# missing token vs unreachable/rejecting instance.
+_blacksmith_forgejo_forge_reachable() {
+  local login base
+  base=$(blacksmith_config_get '.forgejo.base_url' 2>/dev/null) || base="<unset>"
+  [[ -n "${FORGEJO_TOKEN:-}" ]] \
+    || { _blacksmith_die "forge_reachable: FORGEJO_TOKEN is unset; add it to the workspace .env"; return 1; }
+  login=$(_blacksmith_forgejo_curl GET "/user" 2>/dev/null | jq -er '.login' 2>/dev/null) \
+    || { _blacksmith_die "forge_reachable: authenticated /user probe failed against ${base}; check the base URL and FORGEJO_TOKEN"; return 1; }
+  printf '%s\n' "$login"
+}
+
+# Interview-time read of the issue-dependencies unit on an EXISTING repo (for a
+# new repo the check runs post-create, inside provision_board). Echoes "ok".
+_blacksmith_forgejo_deps_unit_ok() {
+  local owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  _blacksmith_forgejo_assert_deps_unit "$owner" "$repo" || return 1
+  printf 'ok\n'
+}
+
+# Board-schema verdict via the status/* label set: "ok" | "none" | "mismatch:
+# missing <labels>". Same echo-never-gate contract as the GitHub impl.
+_blacksmith_forgejo_board_schema_ok() {
+  local owner repo raw names slug missing=""
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/labels?limit=100" 2>/dev/null) \
+    || { printf 'none\n'; return 0; }
+  names=$(jq -r 'if type == "array" then .[].name else empty end' <<<"$raw" 2>/dev/null \
+    | grep '^status/' || true)
+  [[ -n "$names" ]] || { printf 'none\n'; return 0; }
+  while IFS= read -r slug; do
+    grep -qxF "status/${slug}" <<<"$names" || missing+="${missing:+, }status/${slug}"
+  done < <(_blacksmith_board_column_slugs)
+  if [[ -z "$missing" ]]; then printf 'ok\n'; else printf 'mismatch: missing %s\n' "$missing"; fi
 }
 
 # Probe whether owner/repo exists on the Forgejo instance. Returns 0 if it

@@ -65,8 +65,10 @@ to `docs/_local_archive/`.
 
 ## Bootstrap and aux skills
 
-- **`init`** — interactive one-time bootstrap for a new oskr-managed project: creates the
-  repo, provisions the board, writes `harness-config.json`. Not a per-state skill.
+- **`init-project`** — interactive onboarding walkthrough for a project entering the
+  workspace (new repo, imported local folder, or clone): interviews location → backend →
+  secrets → shape → adopt choice, then creates the repo, provisions the board, writes
+  `harness-config.json`. Not a per-state skill.
 - **`sync-worktree`** — bring a feature branch up to date with its base before resuming
   work. Used during **In Progress**.
 - **`writing-skills`** — meta: use when authoring or editing an oskr skill.

@@ -44,8 +44,10 @@ done < <(find "$BIN" -name '*.sh' -type f)
 #    (issue_view/close/remove_label + pr_create/list_merged/open_exists new in
 #    #101; issue_comment/issue_add_label pre-existing). `gh api` is deliberately
 #    NOT scanned: planning-session's parent lookup has no verb yet (follow-up).
-#    init/oskr-setup are the provisioning path (#26/#27) and are NOT scanned.
-DELIVERY_SKILLS="scope research decompose planning-session plan-approval execute-plan land-area clean-up hjarne"
+#    oskr-setup is the workspace-provisioning path (#26/#27) and is NOT scanned.
+#    init-project IS scanned (#103): its onboarding ops route through init-lib
+#    functions and blacksmith verbs, so raw gh issue/pr must not regress in.
+DELIVERY_SKILLS="scope research decompose planning-session plan-approval execute-plan land-area clean-up hjarne init-project"
 for s in $DELIVERY_SKILLS; do
   f="$REPO_ROOT/skills/$s/SKILL.md"
   [[ -f "$f" ]] || { echo "FAIL: missing delivery skill skills/$s/SKILL.md" >&2; fail=1; continue; }
