@@ -13,7 +13,11 @@ WS=$(mktemp -d)
 trap 'rm -rf "$WS"' EXIT
 mkdir -p "$WS/.oskr"
 REG="$WS/.oskr/registry.json"
-run() { OSKR_WORKSPACE="$WS" bash "$REPO_ROOT/bin/registry.sh" "$@"; }
+# OSKR_LEGACY_REGISTRY pins migrate's source to a nonexistent path: since #102
+# every first touch auto-migrates, and without the pin a real legacy registry
+# on the host machine would leak entries into this fixture workspace.
+run() { OSKR_WORKSPACE="$WS" OSKR_LEGACY_REGISTRY="$WS/no-such-legacy.json" \
+        bash "$REPO_ROOT/bin/registry.sh" "$@"; }
 
 # --- T1 contract guard (frozen dependency) ---------------------------------
 # This registry tier is BLOCKED-BY T1's workspace resolver. Assert T1's frozen
