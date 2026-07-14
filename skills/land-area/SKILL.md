@@ -22,9 +22,16 @@ Land a finished Area. When every child PR has merged into the Area branch, this 
    ```
    Match each child to its `feature/<child#>-*` head branch. If any child has no merged PR into `$AREA`, **STOP** and report the unlanded ones (e.g. "#x, #y aren't merged into `$AREA` yet — merge their PRs first, then re-run"). Never open the trunk PR for a half-finished Area.
 
-3. **Open the Area → main PR** (skip cleanly if one already exists — `blacksmith_pr_open_exists "$AREA" "$MAIN"` exits 0 when an open Area→main PR is already there):
+3. **Bump the manifest version on the Area branch** so the bump rides in the Area→main PR. Per CLAUDE.md, every Area→main PR carries exactly one deliberate bump to `.claude-plugin/plugin.json`, sized to the whole batch — **patch** (fixes/docs/refactors, no new capability), **minor** (a new skill/agent/command — pre-1.0 so minor carries features), or **major** (first stable release / breaking the plugin contract). Children never bump, so it lands here:
    ```bash
+   # bump version in .claude-plugin/plugin.json (e.g. 0.7.0 -> 0.8.0), then:
+   git commit -am "chore(release): bump plugin to <new> for <area> (#<umbrella>)"
    git push -u origin "$AREA"
+   ```
+   **Idempotent:** if `$AREA`'s `.claude-plugin/plugin.json` version already differs from `origin/$MAIN`, the bump is done — skip the edit and just ensure the branch is pushed. If `$AREA` is checked out in a sibling worktree (can't `git checkout` it here), commit the one-line bump straight onto `$AREA` via the forge contents API instead.
+
+4. **Open the Area → main PR** (skip cleanly if one already exists — `blacksmith_pr_open_exists "$AREA" "$MAIN"` exits 0 when an open Area→main PR is already there). The branch is already pushed from step 3:
+   ```bash
    blacksmith_pr_create "$AREA" "$MAIN" "<Area title>" "$(cat <<EOF
    ## <Area title>
    [2–3 line summary drawn from the umbrella PRD]
@@ -37,8 +44,8 @@ Land a finished Area. When every child PR has merged into the Area branch, this 
    ```
    **One `Closes #N` per line**, the umbrella plus every child — on merge to `main` (the default branch) they all auto-close.
 
-4. **Roll the umbrella to In Review:** `move-issue.sh "$(find-item.sh <umbrella>)" "In Review"`.
+5. **Roll the umbrella to In Review:** `move-issue.sh "$(find-item.sh <umbrella>)" "In Review"`.
 
-5. **Report the PR URL** and stop. The human reviews the consolidated Area diff and merges it (GATE 3); that merge closes every issue → Done. Tell them to run `/clean-up` afterward to reconcile docs and archive the cards.
+6. **Report the PR URL** and stop. The human reviews the consolidated Area diff and merges it (GATE 3); that merge closes every issue → Done. Tell them to run `/clean-up` afterward to reconcile docs and archive the cards.
 
-**Done when:** every child PR is merged into the Area branch, exactly one open `Area→main` PR exists whose body `Closes` every child **and** the umbrella, and the umbrella is in **In Review** — OR the run STOPPED with a clear list of children not yet landed.
+**Done when:** every child PR is merged into the Area branch, the Area branch carries the single manifest version bump, exactly one open `Area→main` PR exists whose body `Closes` every child **and** the umbrella, and the umbrella is in **In Review** — OR the run STOPPED with a clear list of children not yet landed.
