@@ -2,7 +2,7 @@
 name: clean-up
 description: Clear verified-Done cards off the board and reconcile docs after merge — one system cluster per run, human-approved.
 disable-model-invocation: true
-allowed-tools: Bash(gh *) Bash(git *) Bash(jq *) Bash(source bin/harness-lib.sh*) Bash(find-item.sh*) Bash(archive-item.sh*) Bash(list-children.sh*) Bash(sync-development.sh*) Bash(mv docs/plans/*) Bash(mkdir *) Bash(tail *) Bash(date *) Agent AskUserQuestion Read Glob Grep Write Skill
+allowed-tools: Bash(git *) Bash(jq *) Bash(source bin/harness-lib.sh*) Bash(find-item.sh*) Bash(archive-item.sh*) Bash(list-children.sh*) Bash(sync-development.sh*) Bash(mv docs/plans/*) Bash(mkdir *) Bash(tail *) Bash(date *) Agent AskUserQuestion Read Glob Grep Write Skill
 ---
 
 **Stage 7** of the pipeline — the developer ritual you run by hand after merges land work in **Done**. It clears completed cards and brings documentation in line with what shipped, **one system cluster per run** (bounded cost, repeatable until Done is empty — run it again for the next cluster).
@@ -13,7 +13,7 @@ The headline rule is the **docs/brain split** (reference section below): every p
 
 ## Setup
 
-Runs from the base branch in the consumer repo (CWD holds `harness-config.json`). The neutral verbs (`blacksmith_list_board`) and `gh` read coordinates from there — no per-query owner/repo wiring.
+Runs from the base branch in the consumer repo (CWD holds `harness-config.json`). The neutral verbs (`blacksmith_list_board`, `blacksmith_issue_view`) read coordinates from there — no per-query owner/repo wiring.
 
 ## Preconditions
 
@@ -51,15 +51,16 @@ Cap the cluster at **10**; leave the rest for the next run and **say so** — no
 For every issue in the cluster, gather evidence and classify:
 
 ```bash
-gh issue view <NUMBER> --json state,stateReason,title,url
+source bin/harness-lib.sh && blacksmith_issue_view <NUMBER> \
+  | jq '{number, title, state, stateReason, url}'
 # umbrellas: confirm every child is closed
 list-children.sh <UMBRELLA> | jq '[.[] | {number, state}]'
 ```
 
 | Classification | Meaning | Default disposition |
 |----------------|---------|---------------------|
-| `shipped` | `state == CLOSED` + `stateReason == COMPLETED`; **umbrella:** every child `closed` | Archive after batch approval |
-| `not-planned` | Closed `NOT_PLANNED` with an explanatory comment | Individual decision |
+| `shipped` | `state == "closed"` + `stateReason == "completed"` (on forges without close reasons — Forgejo — `stateReason` is `null`: fall back to close state + every-child-closed); **umbrella:** every child `closed` | Archive after batch approval |
+| `not-planned` | Closed `not_planned` (a `null` `stateReason` on a closed issue is **not** `not-planned` — treat it as `shipped`-candidate per the fallback above, or `in-flight` if children are open) with an explanatory comment | Individual decision |
 | `in-flight` | Closed but an umbrella still has open children (or evidence of unmerged work) | Individual decision |
 | `anomaly` | In Done but still **open**, or evidence contradicts the column | Report only — never archive |
 
@@ -72,7 +73,7 @@ Write the plan artifact to `docs/temp/clean-up-<YYYY-MM-DD>-<system>.md` (gitign
 
 ## Phase 3: Validate
 
-Re-verify mechanically before anything reaches the developer — do not trust the artifact you just wrote. Re-run `gh issue view` (and `list-children.sh` for umbrellas) **fresh** for every `shipped` claim and confirm the close state still holds. Downgrade anything that fails to `anomaly`.
+Re-verify mechanically before anything reaches the developer — do not trust the artifact you just wrote. Re-run `blacksmith_issue_view` (and `list-children.sh` for umbrellas) **fresh** for every `shipped` claim and confirm the close state still holds. Downgrade anything that fails to `anomaly`.
 
 ## Phase 4: Human approval gate
 
@@ -163,7 +164,7 @@ Every piece of knowledge the cluster surfaces routes to **exactly one** home. De
 
 ## Gotchas
 
-- **`state: CLOSED` is not "shipped".** An issue can be closed `NOT_PLANNED`. For an umbrella, "shipped" means **every child closed** (the Area-branch merge model's portable signal) — not the umbrella's own state alone.
+- **`state: "closed"` is not "shipped".** An issue can be closed `not_planned`. For an umbrella, "shipped" means **every child closed** (the Area-branch merge model's portable signal) — not the umbrella's own state alone.
 - **Old plan files vastly outnumber clusters.** `docs/plans/` accumulates; archive only the ones linked to issues approved this run. The backlog drains over repeated runs, not one.
 - **Working artifacts vs. the record.** `docs/temp/` and `logs/` are gitignored; the committed record is the doc changes, the plan-file deletions, and any `docs/brain-inbox/` notes `/hjarne` staged as its inbox fallback. The board's archived-items view, `logs/clean-up.log`, and the Phase 8 commit body's page-pointer list carry the audit trail.
-- **Don't reach for `gh api graphql`.** Read the board through `blacksmith_list_board` and children through `list-children.sh` so the skill stays backend-neutral; use `gh` only for per-issue read/comment.
+- **Don't reach for `gh api graphql`.** Read the board through `blacksmith_list_board` and children through `list-children.sh` so the skill stays backend-neutral; use `blacksmith_issue_view` / `blacksmith_issue_comment` for per-issue read/comment.

@@ -46,6 +46,24 @@ if [[ "$args" == *addProjectV2ItemById* ]]; then
   printf '%s' '{"data":{"addProjectV2ItemById":{"item":{"id":"PVTI_created"}}}}' | emit
   exit 0
 fi
+if [[ "$args" == *createProjectV2Field* ]]; then       # taxonomy/Phase field create (provision_board)
+  printf '%s' '{"data":{"createProjectV2Field":{"projectV2Field":{"id":"F_new","name":"created"}}}}' | emit
+  exit 0
+fi
+if [[ "$args" == *createProjectV2* && -n "${GH_SHIM_CREATE_PROJECT_FIXTURE:-}" ]]; then  # createProjectV2 (provision_board); Field route above matches first
+  emit < "$GH_SHIM_CREATE_PROJECT_FIXTURE"; exit 0
+fi
+if [[ "$args" == *linkProjectV2ToRepository* ]]; then  # project->repo link (provision_board)
+  printf '%s' '{"data":{"linkProjectV2ToRepository":{"repository":{"id":"R_linked"}}}}' | emit
+  exit 0
+fi
+if [[ "$args" == *updateProjectV2Field* ]]; then       # Status augment (provision_status_columns)
+  printf '%s' '{"data":{"updateProjectV2Field":{"projectV2Field":{"id":"F_status","name":"Status"}}}}' | emit
+  exit 0
+fi
+if [[ "$args" == *"owner { id }"* && -n "${GH_SHIM_REPO_IDS_FIXTURE:-}" ]]; then  # repo+owner node ids (provision_board)
+  emit < "$GH_SHIM_REPO_IDS_FIXTURE"; exit 0
+fi
 if [[ "$args" == */milestones* && "$args" == *"title="* ]]; then   # POST create milestone (opt-in)
   emit < "${GH_SHIM_CREATE_MILESTONE_FIXTURE:-/dev/null}"; exit 0
 fi
@@ -75,6 +93,16 @@ if [[ "$args" == *dependencies/blocked_by* && "$args" == *issue_id=* ]]; then  #
 fi
 if [[ "$args" == *"repo view"* ]]; then         # remote_exists probe: rc 0 = exists, non-zero = absent
   exit "${GH_SHIM_REPO_VIEW_RC:-0}"
+fi
+if [[ "$args" == *"repo create"* ]]; then       # repo_create: prints the new repo URL
+  [[ "${GH_SHIM_REPO_CREATE_RC:-0}" -eq 0 ]] && printf '%s\n' "${GH_SHIM_REPO_CREATE_URL:-https://github.com/test/repo}"
+  exit "${GH_SHIM_REPO_CREATE_RC:-0}"
+fi
+if [[ "$args" == *"/pulls"* && -n "${GH_SHIM_PULLS_FIXTURE:-}" ]]; then   # PR create/list (pr_* verbs)
+  emit < "$GH_SHIM_PULLS_FIXTURE"; exit 0
+fi
+if [[ "$args" == *"/comments"* && -n "${GH_SHIM_COMMENTS_FIXTURE:-}" ]]; then  # GET issue comments (issue_view)
+  emit < "$GH_SHIM_COMMENTS_FIXTURE"; exit 0
 fi
 if [[ "$args" == *"/issues/"* && -n "${GH_SHIM_ISSUE_FIXTURE:-}" ]]; then   # GET/PATCH single issue (opt-in)
   emit < "$GH_SHIM_ISSUE_FIXTURE"; exit 0

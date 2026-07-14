@@ -3,14 +3,14 @@ name: scope
 description: "Scope a goal or Backlog issue into an Area — research → grill → PRD → decomposed tasks, on its own Area branch. The intake front door (GATE 1)."
 disable-model-invocation: true
 argument-hint: "[issue-number | \"goal text\"]"
-allowed-tools: Bash(gh *) Bash(git *) Bash(create-issue.sh*) Bash(set-milestone.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) Read Glob Grep Skill AskUserQuestion
+allowed-tools: Bash(source bin/harness-lib.sh*) Bash(git *) Bash(create-issue.sh*) Bash(set-milestone.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) Read Glob Grep Skill AskUserQuestion
 ---
 
 The front door. One human-driven gate that takes a raw goal to a board-ready Area: **research → grill → PRD → decompose**. It is **GATE 1 (hard)** — it never runs unattended, because the grill needs you. The phases are model-invoked skills run in sequence; they share this conversation, so each sees the last.
 
 ## Phase 0 — anchor the work
 
-- **Resolve the input.** If `$ARGUMENTS` is a number, load it (`gh issue view <n> --json title,body,labels,comments`). Otherwise **Capture first**: `create-issue.sh "<goal text>"` to mint the seed umbrella, then load it. The issue is the durable home the PRD lives in and the anchor for every later step — create it at the **start**, never the end.
+- **Resolve the input.** If `$ARGUMENTS` is a number, load it (`source bin/harness-lib.sh && blacksmith_issue_view <n>`). Otherwise **Capture first**: `create-issue.sh "<goal text>"` to mint the seed umbrella, then load it. The issue is the durable home the PRD lives in and the anchor for every later step — create it at the **start**, never the end.
 - **Move it to Scoping:** `move-issue.sh "$(find-item.sh <n>)" Scoping`.
 - **Re-entry:** if the umbrella body already holds the 11-section PRD, or a `## Research Digest` comment is present, resume at the first unfinished phase — do not redo a completed one.
 - **Record the Area branch.** `scope` runs inside an **Orca-created worktree**, so the branch already exists — do NOT create one. Capture it (`git branch --show-current`) and record it on the umbrella **two ways**: a human Placement line (`Area branch: <branch>`) **and** the adapter-owned marker `<!-- oskr:area-branch <branch> -->` — the machine source `blacksmith_base_branch` reads (prose alone collides with phrases like "the Area branch: read the base …"). It is the base every child PR will target. The name is Orca's (freeform, e.g. `WillyDallas/area-pipeline-backend`) — captured, never derived from the `area/*` label. *(If not in a worktree — e.g. run from the base branch — note it and skip; child execution falls back to `main`. Orca branching child worktrees off this base is the #19 enhancement, not a blocker.)*
@@ -27,7 +27,7 @@ Run the `/grill` skill. It interviews you one question at a time toward shared u
 
 Write the **11-section Area PRD** (below) into the umbrella **body** from the grill — do not re-ask what the grill settled; *expand* the enumerable sections. Then stamp it:
 - `set-milestone.sh <umbrella> "<Epoch title>"` (the Placement section's Epoch).
-- add labels `area/<slug>` **and** `type/umbrella` (`gh issue edit <umbrella> --add-label "area/<slug>,type/umbrella"`).
+- add labels `area/<slug>` **and** `type/umbrella` (`source bin/harness-lib.sh && blacksmith_issue_add_label <umbrella> "area/<slug>" && blacksmith_issue_add_label <umbrella> "type/umbrella"` — one label per call).
 - `move-issue.sh "$(find-item.sh <umbrella>)" Planning`.
 
 **Granularity:** if the grill showed the goal is a *single* unit of work, keep it as one scoped task — write a `## What` + `## AC` instead of the full PRD, skip `type/umbrella`, and **skip Phase 4**.

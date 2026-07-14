@@ -2,7 +2,7 @@
 name: research
 description: Ground a goal or issue before scoping or planning — assemble ONE cited digest from the repo and the web and post it to the issue. Reach for it from `scope`, or whenever a decision needs evidence on the table.
 argument-hint: "[issue-number | topic]"
-allowed-tools: Bash(gh *) Bash(sync-development.sh*) Read Glob Grep Agent Skill
+allowed-tools: Bash(source bin/harness-lib.sh*) Bash(sync-development.sh*) Read Glob Grep Agent Skill
 ---
 
 Assemble one grounded, cited digest so the grill that follows starts informed instead of cold. This is an **ability**: `scope` runs it inline and the v2 loop runs it ahead of time — either way the output is the same durable comment.
@@ -11,7 +11,7 @@ Assemble one grounded, cited digest so the grill that follows starts informed in
 
 ## Steps
 
-1. **Resolve the subject.** If `$ARGUMENTS` is an issue number, read it (`gh issue view <n> --json title,body,comments`). If a `## Research Digest` comment is already present and the working tree has not moved since it was written, **reuse it — stop here** (do not re-dig). Otherwise continue.
+1. **Resolve the subject.** If `$ARGUMENTS` is an issue number, read it (`source bin/harness-lib.sh && blacksmith_issue_view <n>`). If a `## Research Digest` comment is already present and the working tree has not moved since it was written, **reuse it — stop here** (do not re-dig). Otherwise continue.
 
 2. **Sync the tree before spawning agents.** Researchers read the local tree; a stale base yields confident-wrong findings. `sync-development.sh research` — on a non-zero exit, surface the message and stop rather than research a stale base.
 
@@ -19,7 +19,7 @@ Assemble one grounded, cited digest so the grill that follows starts informed in
 
 4. **Assemble ONE digest** — recommendation · key files & candidate **seams** (`file:path`) · risks · open questions · citations (URLs + `file:line`). One digest, not a transcript.
 
-5. **Post it** as a `## Research Digest` comment (`gh issue comment <n>`), and **leave the card where it is** — research never crosses a gate.
+5. **Post it** as a `## Research Digest` comment (`source bin/harness-lib.sh && blacksmith_issue_comment <n> "<digest>"`), and **leave the card where it is** — research never crosses a gate.
 
 6. **Register the pointer.** When a brain resolves in this workspace, invoke
    `/hjarne register-pointer` via the **Skill** tool, passing the **STABLE issue ref** as

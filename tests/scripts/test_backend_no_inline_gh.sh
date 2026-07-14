@@ -37,5 +37,26 @@ while IFS= read -r f; do
   bash -n "$f" || { echo "FAIL: bash -n $(basename "$f")" >&2; fail=1; }
 done < <(find "$BIN" -name '*.sh' -type f)
 
+# 4. Delivery-path skills perform issue/PR operations only through blacksmith
+#    verbs (#101). Scans the 9 delivery SKILL.md files for raw `gh issue` /
+#    `gh pr` — code AND prose (a documented raw call regresses the same way).
+#    Allowlist: EMPTY — every gh issue/pr operation in these skills has a verb
+#    (issue_view/close/remove_label + pr_create/list_merged/open_exists new in
+#    #101; issue_comment/issue_add_label pre-existing). `gh api` is deliberately
+#    NOT scanned: planning-session's parent lookup has no verb yet (follow-up).
+#    oskr-setup is the workspace-provisioning path (#26/#27) and is NOT scanned.
+#    init-project IS scanned (#103): its onboarding ops route through init-lib
+#    functions and blacksmith verbs, so raw gh issue/pr must not regress in.
+DELIVERY_SKILLS="scope research decompose planning-session plan-approval execute-plan land-area clean-up hjarne init-project"
+for s in $DELIVERY_SKILLS; do
+  f="$REPO_ROOT/skills/$s/SKILL.md"
+  [[ -f "$f" ]] || { echo "FAIL: missing delivery skill skills/$s/SKILL.md" >&2; fail=1; continue; }
+  if grep -nE '\bgh (issue|pr)\b' "$f" >/dev/null 2>&1; then
+    echo "FAIL: raw gh issue/pr call in skills/$s/SKILL.md — use a blacksmith verb:" >&2
+    grep -nE '\bgh (issue|pr)\b' "$f" >&2
+    fail=1
+  fi
+done
+
 [[ "$fail" -eq 0 ]] || exit 1
 echo "test_backend_no_inline_gh: PASS"

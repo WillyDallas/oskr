@@ -33,10 +33,18 @@ _registry_oskr_dir() {
 }
 
 # Echo the registry.json path, first-creating an empty registry when absent.
+# ORDERING (#102): migrate any legacy registry BEFORE the empty first-create
+# below. Without this, the FIRST touch — `list` (read) OR `add` (write) —
+# would first-create an empty {"projects":[]}, after which registry_migrate
+# sees the target exist and no-ops forever, permanently orphaning the legacy
+# entries. registry_migrate resolves its own target via _registry_oskr_dir
+# (not _registry_file), so this is NOT recursive. Auto-migrate, not refuse;
+# a read-only `list` may therefore perform a one-time migration.
 _registry_file() {
   local d f
   d=$(_registry_oskr_dir) || return 1
   f="$d/registry.json"
+  registry_migrate
   [[ -f "$f" ]] || echo '{"projects": []}' > "$f"
   printf '%s' "$f"
 }

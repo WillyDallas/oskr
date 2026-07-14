@@ -1,6 +1,6 @@
 ---
 name: oskr-setup
-description: One-time interactive bootstrap for a fresh oskr workspace. Creates the workspace skeleton (.oskr/, projects/, hjarne/, learning/) via the seam-tested bin/oskr-setup.sh verb, gathers global config (backend + default base branch) into .oskr/config.json, instruct-and-verifies credentials into the workspace .env / gh keychain, delegates brain/teach setup only if those skills are present, and hands off to init for project #1. Run from inside the directory you want to become the workspace control plane.
+description: One-time interactive bootstrap for a fresh oskr workspace. Creates the workspace skeleton (.oskr/, projects/, hjarne/, learning/) via the seam-tested bin/oskr-setup.sh verb, gathers global config (backend + default base branch) into .oskr/config.json, instruct-and-verifies credentials into the workspace .env / gh keychain, delegates brain/teach setup only if those skills are present, and hands off to init-project for project #1. Run from inside the directory you want to become the workspace control plane.
 argument-hint: "(no arguments — interactive)"
 allowed-tools: Bash(oskr-setup.sh*) Bash(mkdir *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(gh auth*) Read Write Edit
 ---
@@ -8,7 +8,7 @@ allowed-tools: Bash(oskr-setup.sh*) Bash(mkdir *) Bash(jq *) Bash(cat *) Bash(ec
 You are standing up a developer's oskr **workspace** — the control plane that holds
 all oskr state, runs once, and is augmented in place. Be interactive: detect what you
 can, ask only what you cannot infer, surface the impact of each step before doing it.
-Workspace bootstrap happens **once**; project onboarding (`init`) happens many times.
+Workspace bootstrap happens **once**; project onboarding (`init-project`) happens many times.
 
 ## Phase 0: Pre-flight detection
 
@@ -72,8 +72,8 @@ These belong to later Areas (brain #28, teach #30) and may not exist yet.
 - **Teach:** same rule — **if present**, invoke the teach/learning setup for `learning/`;
   otherwise **skip cleanly**. Their absence never blocks completion.
 
-## Phase 5: Hand off to init
+## Phase 5: Hand off to init-project
 
 Close by pointing the developer to the next step:
 
-> Workspace ready at `$WS`. Next, run **`init`** from your project directory to onboard **project #1**.
+> Workspace ready at `$WS`. Next, run **`init-project`** (from anywhere inside the workspace) to onboard **project #1** — new repo, imported local folder, or clone.

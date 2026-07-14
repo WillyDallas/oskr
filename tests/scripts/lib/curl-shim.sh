@@ -20,14 +20,20 @@ if [[ "$args" == *"/milestones"* ]]; then               # GET milestones (set_mi
   [[ -n "${CURL_SHIM_MILESTONES_FIXTURE:-}" ]] && { cat "$CURL_SHIM_MILESTONES_FIXTURE"; exit 0; }
   echo '[]'; exit 0
 fi
+if [[ "$args" == *"/pulls"* ]]; then                    # PR create / list (pr_* verbs)
+  [[ -n "${CURL_SHIM_PULLS_FIXTURE:-}" ]] && { cat "$CURL_SHIM_PULLS_FIXTURE"; exit 0; }
+  echo '[]'; exit 0
+fi
 if [[ "$args" == */issues/*/labels* ]]; then            # add issue labels (move / create / add_label)
   [[ -n "${CURL_SHIM_ISSUE_LABELS_FIXTURE:-}" ]] && { cat "$CURL_SHIM_ISSUE_LABELS_FIXTURE"; exit 0; }
   echo '[{"name":"status/backlog"}]'; exit 0
 fi
-if [[ "$args" == */issues/*/comments* ]]; then          # post comment
+if [[ "$args" == */issues/*/comments* ]]; then          # comments: GET (issue_view) / POST (comment)
+  [[ -n "${CURL_SHIM_COMMENTS_FIXTURE:-}" ]] && { cat "$CURL_SHIM_COMMENTS_FIXTURE"; exit 0; }
   echo '{"id":1}'; exit 0
 fi
-if [[ "$args" == */repos/*/labels* ]]; then             # repo label create (ensure_label)
+if [[ "$args" == */repos/*/labels* ]]; then             # repo labels: GET list (board_schema_ok) / POST create (ensure_label)
+  [[ -n "${CURL_SHIM_REPO_LABELS_FIXTURE:-}" ]] && { cat "$CURL_SHIM_REPO_LABELS_FIXTURE"; exit 0; }
   echo '{"id":1}'; exit 0
 fi
 if [[ "$args" == *"/issues?"* ]]; then                  # GET issues list (list_board / count_actionable)
@@ -41,6 +47,14 @@ fi
 if [[ "$args" == *"/issues"* ]]; then                   # POST create issue
   [[ -n "${CURL_SHIM_CREATE_FIXTURE:-}" ]] && { cat "$CURL_SHIM_CREATE_FIXTURE"; exit 0; }
   echo '{}'; exit 0
+fi
+if [[ "$args" == *"/orgs/"*"/repos"* || "$args" == *"/user/repos"* ]]; then  # repo_create
+  [[ -n "${CURL_SHIM_REPO_CREATE_FIXTURE:-}" ]] && { cat "$CURL_SHIM_REPO_CREATE_FIXTURE"; exit 0; }
+  echo '{}'; exit 0
+fi
+if [[ "$args" == *"/api/v1/user"* ]]; then      # GET authenticated user (repo_create routing)
+  [[ -n "${CURL_SHIM_USER_FIXTURE:-}" ]] && { cat "$CURL_SHIM_USER_FIXTURE"; exit 0; }
+  echo '{"login":"test-user"}'; exit 0
 fi
 if [[ -n "${CURL_SHIM_REPO_FIXTURE:-}" && "$args" == */repos/* ]]; then   # GET repo object (deps-unit assertion)
   cat "$CURL_SHIM_REPO_FIXTURE"; exit 0

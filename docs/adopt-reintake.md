@@ -2,7 +2,7 @@
 
 The heavy adopt path for a **brownfield** project: take a repo with an off-board
 backlog and re-shape it into oskr board structure — one Epoch milestone, phases as
-Area umbrellas, slim task issues linked beneath. Use it when `init` adopt detects
+Area umbrellas, slim task issues linked beneath. Use it when `init-project` detects
 existing issues/a board and you choose **full migration** over register-only.
 
 The middle step — **reconcile** — is a **guided checklist done by hand**, not an

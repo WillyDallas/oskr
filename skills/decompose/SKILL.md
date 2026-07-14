@@ -2,14 +2,14 @@
 name: decompose
 description: Decompose an approved Area PRD into independently-grabbable task issues — tracer-bullet vertical slices created under the umbrella with native deps. Reach for it from `scope` after the PRD lands.
 argument-hint: "[umbrella-issue-number]"
-allowed-tools: Bash(gh *) Bash(create-issue.sh*) Bash(set-milestone.sh*) Bash(link-parent.sh*) Bash(add-dep.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) AskUserQuestion Read Grep
+allowed-tools: Bash(source bin/harness-lib.sh*) Bash(create-issue.sh*) Bash(set-milestone.sh*) Bash(link-parent.sh*) Bash(add-dep.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) AskUserQuestion Read Grep
 ---
 
 Turn the umbrella's PRD into **tracer bullets** — thin vertical slices, each demoable on its own — published as linked task issues. Runs inside the Scope gate, so the developer is present to ratify the cut.
 
 ## Steps
 
-1. **Read the umbrella.** `gh issue view <umbrella> --json title,body,labels`. Pull the **Task DAG** and **Named Seams** from the PRD body, and resolve the Epoch (the milestone title in the PRD's **Placement** section) + the `area/<slug>` label it carries. If the PRD describes a single unit of work, **the umbrella IS the task — stop**; there is nothing to decompose.
+1. **Read the umbrella.** `source bin/harness-lib.sh && blacksmith_issue_view <umbrella>`. Pull the **Task DAG** and **Named Seams** from the PRD body, and resolve the Epoch (the milestone title in the PRD's **Placement** section) + the `area/<slug>` label it carries. If the PRD describes a single unit of work, **the umbrella IS the task — stop**; there is nothing to decompose.
 
 2. **Draft the slices.** Each slice is a **tracer bullet**: a narrow but complete path end-to-end, verifiable alone — not a horizontal layer. In a non-layered repo (bash / skills / agents), a slice is one end-to-end capability that exercises a seam. Prefactor first — "make the change easy, then make the easy change."
 

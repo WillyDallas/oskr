@@ -165,6 +165,23 @@ blacksmith_provision_status_columns() { _blacksmith_dispatch provision_status_co
 blacksmith_list_issues()       { _blacksmith_dispatch list_issues "$@"; }
 blacksmith_create_milestone()  { _blacksmith_dispatch create_milestone "$@"; }
 
+# #101 delivery verbs: issue read/close/label-remove, PR create/list/probe,
+# repo create — the last raw-gh ops the delivery skills needed.
+blacksmith_issue_view()         { _blacksmith_dispatch issue_view "$@"; }
+blacksmith_issue_close()        { _blacksmith_dispatch issue_close "$@"; }
+blacksmith_issue_remove_label() { _blacksmith_dispatch issue_remove_label "$@"; }
+blacksmith_pr_create()          { _blacksmith_dispatch pr_create "$@"; }
+blacksmith_pr_list_merged()     { _blacksmith_dispatch pr_list_merged "$@"; }
+blacksmith_pr_open_exists()     { _blacksmith_dispatch pr_open_exists "$@"; }
+blacksmith_repo_create()        { _blacksmith_dispatch repo_create "$@"; }
+
+# #103 onboarding probes (init-project interview gates) + full board provisioning.
+# The probes read coordinates from the config the interview points HARNESS_CONFIG
+# at — they are reads, never writes.
+blacksmith_forge_reachable()    { _blacksmith_dispatch forge_reachable "$@"; }
+blacksmith_deps_unit_ok()       { _blacksmith_dispatch deps_unit_ok "$@"; }
+blacksmith_board_schema_ok()    { _blacksmith_dispatch board_schema_ok "$@"; }
+
 # --- column-vocabulary helpers (forge-agnostic) ----------------------------
 
 _blacksmith_normalize_slug() {
@@ -416,6 +433,79 @@ _blacksmith_github_provision_status_columns() {
   " -f projectId="$project_id" >/dev/null 2>&1 \
     || { _blacksmith_die "provision_status_columns: could not augment Status nor create Phase"; return 1; }
   printf 'Phase'
+}
+
+# Create the Priority/Size/Category single-selects on a fresh project — the
+# taxonomy half of full board provisioning (moved out of init's prose, #103).
+_blacksmith_github_provision_taxonomy_fields() {
+  local project_id="$1" spec fname
+  [[ -n "$project_id" ]] || { _blacksmith_die "provision_taxonomy: project node id required"; return 1; }
+  for spec in \
+    'Priority|[{ name: "P1", color: RED, description: "Highest" },{ name: "P2", color: YELLOW, description: "Medium" },{ name: "P3", color: GREEN, description: "Lowest" }]' \
+    'Size|[{ name: "XS", color: GREEN, description: "< 1hr" },{ name: "S", color: BLUE, description: "1-4hr" },{ name: "M", color: YELLOW, description: "Half day" },{ name: "L", color: ORANGE, description: "Full day" },{ name: "XL", color: RED, description: "Multi-day" }]' \
+    'Category|[{ name: "Feature", color: BLUE, description: "" },{ name: "Bug", color: RED, description: "" },{ name: "Chore", color: GRAY, description: "" },{ name: "Spike", color: PURPLE, description: "" },{ name: "Docs", color: GREEN, description: "" }]'
+  do
+    fname="${spec%%|*}"
+    gh api graphql -f query="
+      mutation(\$projectId: ID!) {
+        createProjectV2Field(input: {
+          projectId: \$projectId, dataType: SINGLE_SELECT, name: \"$fname\",
+          singleSelectOptions: ${spec#*|}
+        }) { projectV2Field { ... on ProjectV2SingleSelectField { id name } } }
+      }" -f projectId="$project_id" >/dev/null 2>&1 \
+      || { _blacksmith_die "provision_board: creating field '$fname' failed"; return 1; }
+  done
+}
+
+# Provision a full Projects v2 board for the configured repo: create the project
+# (titled "oskr — <name>"), link it to the repo, provision the 8 status columns,
+# create the Priority/Size/Category taxonomy. Echoes the backend-neutral result
+#   {"project_number": N, "url": U, "status_field": "Status"|"Phase"}
+# so the caller can backfill project_number into the config (the #103 hole).
+# The GitHub arm of the same verb Forgejo already had.  provision_board
+_blacksmith_github_provision_board() {
+  local owner repo name ids repo_id owner_id resp project_id number url status_field
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  name=$(blacksmith_config_get '.name' 2>/dev/null) || name="$repo"
+  # shellcheck disable=SC2016
+  ids=$(gh api graphql -f query='
+    query($owner: String!, $repo: String!) {
+      repository(owner: $owner, name: $repo) { id owner { id } }
+    }
+  ' -F owner="$owner" -F repo="$repo" 2>/dev/null) \
+    || { _blacksmith_die "provision_board: cannot resolve node ids for ${owner}/${repo}"; return 1; }
+  repo_id=$(jq -er '.data.repository.id' <<<"$ids" 2>/dev/null) \
+    || { _blacksmith_die "provision_board: repo ${owner}/${repo} not found"; return 1; }
+  owner_id=$(jq -er '.data.repository.owner.id' <<<"$ids") || return 1
+
+  # shellcheck disable=SC2016
+  resp=$(gh api graphql -f query='
+    mutation($ownerId: ID!, $title: String!) {
+      createProjectV2(input: { ownerId: $ownerId, title: $title }) {
+        projectV2 { id number url }
+      }
+    }
+  ' -f ownerId="$owner_id" -f title="oskr — ${name}" 2>/dev/null) \
+    || { _blacksmith_die "provision_board: createProjectV2 failed"; return 1; }
+  project_id=$(jq -er '.data.createProjectV2.projectV2.id' <<<"$resp") || return 1
+  number=$(jq -er '.data.createProjectV2.projectV2.number' <<<"$resp") || return 1
+  url=$(jq -er '.data.createProjectV2.projectV2.url' <<<"$resp") || return 1
+
+  # shellcheck disable=SC2016
+  gh api graphql -f query='
+    mutation($projectId: ID!, $repoId: ID!) {
+      linkProjectV2ToRepository(input: { projectId: $projectId, repositoryId: $repoId }) {
+        repository { id }
+      }
+    }
+  ' -f projectId="$project_id" -f repoId="$repo_id" >/dev/null 2>&1 \
+    || { _blacksmith_die "provision_board: linking project to ${owner}/${repo} failed"; return 1; }
+
+  status_field=$(_blacksmith_github_provision_status_columns "$project_id") || return 1
+  _blacksmith_github_provision_taxonomy_fields "$project_id" || return 1
+  jq -nc --argjson n "$number" --arg u "$url" --arg s "$status_field" \
+    '{project_number: $n, url: $u, status_field: $s}'
 }
 
 # --- Compound operations ---------------------------------------------------
@@ -752,6 +842,142 @@ _blacksmith_github_list_issues() {
     | { number, title, state, body: (.body // ""), labels: [ (.labels // [])[] | .name ] } ]'
 }
 
+# --- Issue read/close/label-remove (delivery verbs; #101) --------------------
+
+# Echo one issue in the neutral shape:
+#   { number, title, state, stateReason, body, labels:[name], comments:[body], url }
+# Superset of the #101 minimum {title,body,labels,comments}: state/stateReason back
+# clean-up's shipped/not-planned classification; url backs its evidence links.
+# GitHub-REST casing is the neutral baseline (state lowercase; stateReason
+# completed|not_planned|null — null on forges without close reasons).
+# Comments: first 100 (single page, matching list_issues' cap), oldest first —
+# "most recent" = last.   issue_view <issue_number>
+_blacksmith_github_issue_view() {
+  local issue="$1" owner repo raw comments
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/issues/${issue}" 2>/dev/null) \
+    || { _blacksmith_die "issue_view: cannot read #$issue"; return 1; }
+  comments=$(gh api "repos/${owner}/${repo}/issues/${issue}/comments?per_page=100" 2>/dev/null) || comments='[]'
+  jq -c --argjson c "$comments" '{
+      number, title, state,
+      stateReason: (.state_reason // null),
+      body: (.body // ""),
+      labels: [ (.labels // [])[] | .name ],
+      comments: [ $c[] | .body ],
+      url: .html_url
+    }' <<<"$raw"
+}
+
+# Close an issue. reason = GitHub state_reason (completed | not_planned), default
+# completed; the Forgejo arm accepts-and-ignores it (no close-reason concept).
+# Side-effect op; no stdout; loud failure.   issue_close <issue> [reason]
+_blacksmith_github_issue_close() {
+  local issue="$1" reason="${2:-completed}" owner repo
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  gh api "repos/${owner}/${repo}/issues/${issue}" -X PATCH -f state=closed -f state_reason="$reason" >/dev/null 2>&1 \
+    || { _blacksmith_die "issue_close: failed to close #$issue"; return 1; }
+}
+
+# Remove a label from an issue by NAME (never fails the caller — mirrors the
+# issue_add_label family; an absent label is a no-op).
+#   issue_remove_label <issue> <label>
+_blacksmith_github_issue_remove_label() {
+  local issue="$1" label="$2" owner repo
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  gh api -X DELETE "repos/${owner}/${repo}/issues/${issue}/labels/${label}" >/dev/null 2>&1 || true
+}
+
+# --- PR create / list-merged / open-probe (delivery verbs; #101) --------------
+
+# Open a PR; echoes the neutral { number, url }. The head branch must already be
+# pushed (REST create does not push). pr_create <head> <base> <title> <body>
+_blacksmith_github_pr_create() {
+  local head="$1" base="$2" title="$3" body="${4:-}" owner repo raw
+  [[ -n "$head" && -n "$base" && -n "$title" ]] || { _blacksmith_die "pr_create: head, base and title required"; return 1; }
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/pulls" -f head="$head" -f base="$base" -f title="$title" -f body="$body" 2>/dev/null) \
+    || { _blacksmith_die "pr_create: failed ($head -> $base)"; return 1; }
+  jq -c '{number, url: .html_url}' <<<"$raw"
+}
+
+# Echo the MERGED PRs whose base is <base>, as [ { number, title, headBranch } ].
+# GitHub filters base server-side; merged = merged_at set (state=closed includes
+# unmerged closures). Single page (100), matching the other list verbs' cap.
+#   pr_list_merged <base>
+_blacksmith_github_pr_list_merged() {
+  local base="$1" owner repo raw
+  [[ -n "$base" ]] || { _blacksmith_die "pr_list_merged: base branch required"; return 1; }
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  raw=$(gh api "repos/${owner}/${repo}/pulls?base=${base}&state=closed&per_page=100" 2>/dev/null) \
+    || { _blacksmith_die "pr_list_merged: query failed for base $base"; return 1; }
+  jq -c '[ .[] | select(.merged_at != null) | {number, title, headBranch: .head.ref} ]' <<<"$raw"
+}
+
+# Probe: does an OPEN PR <head> -> <base> exist? rc 0 = yes, non-zero = no
+# (mirrors remote_exists; no stdout). GitHub's head filter needs owner:branch.
+#   pr_open_exists <head> <base>
+_blacksmith_github_pr_open_exists() {
+  local head="$1" base="$2" owner repo n
+  [[ -n "$head" && -n "$base" ]] || { _blacksmith_die "pr_open_exists: head and base required"; return 1; }
+  owner=$(blacksmith_config_get '.github.owner') || return 1
+  repo=$(blacksmith_config_get '.github.repo')   || return 1
+  n=$(gh api "repos/${owner}/${repo}/pulls?head=${owner}:${head}&base=${base}&state=open" --jq 'length' 2>/dev/null) || n=0
+  [[ "$n" -gt 0 ]]
+}
+
+# --- Repo creation (delivery verb; #101) --------------------------------------
+# Create a PRIVATE repo; echoes the neutral { url }. gh routes user- vs
+# org-owned itself from the owner/ prefix. Wiring this into init/oskr-setup is
+# the provisioning path (#26/#27) — out of scope here; the verb is the contract.
+#   repo_create <owner> <repo>
+_blacksmith_github_repo_create() {
+  local owner="$1" repo="$2" url
+  [[ -n "$owner" && -n "$repo" ]] || { _blacksmith_die "repo_create: owner and repo required"; return 1; }
+  url=$(gh repo create "${owner}/${repo}" --private 2>/dev/null) \
+    || { _blacksmith_die "repo_create: failed for ${owner}/${repo}"; return 1; }
+  jq -nc --arg u "$url" '{url: $u}'
+}
+
+# --- Onboarding probes (#103) -----------------------------------------------
+
+# Verify forge auth + reachability; echoes the authenticated login. The
+# interview's secrets gate: non-zero means instruct-and-verify, never proceed.
+_blacksmith_github_forge_reachable() {
+  local login
+  login=$(gh api user --jq '.login' 2>/dev/null) \
+    || { _blacksmith_die "forge_reachable: no authenticated GitHub user; run: gh auth login"; return 1; }
+  printf '%s\n' "$login"
+}
+
+# GitHub sub-issues/dependencies are native — nothing to switch on.
+_blacksmith_github_deps_unit_ok() { printf 'ok\n'; }
+
+# Echo the board-schema verdict: "ok" (all 8 canonical columns present), "none"
+# (no board to inspect), or "mismatch: missing <names>". Echoes, never gates —
+# the caller decides what a mismatch means (adopt treats it as context:
+# register-only keeps the board, full migration replaces it).
+_blacksmith_github_board_schema_ok() {
+  local number raw options slug name missing=""
+  number=$(blacksmith_config_get '.github.project_number' 2>/dev/null) || number=0
+  [[ "$number" =~ ^[0-9]+$ && "$number" -gt 0 ]] || { printf 'none\n'; return 0; }
+  raw=$(_blacksmith_github_discover_raw 2>/dev/null) || { printf 'none\n'; return 0; }
+  options=$(jq -r '
+    .data.repository.projectV2.fields.nodes[]?
+    | select(.name == "Status" or .name == "Phase") | .options[]?.name
+  ' <<<"$raw" 2>/dev/null) || options=""
+  [[ -n "$options" ]] || { printf 'none\n'; return 0; }
+  while IFS= read -r slug; do
+    name=$(_blacksmith_default_name_for_slug "$slug") || return 1
+    grep -qxF "$name" <<<"$options" || missing+="${missing:+, }$name"
+  done < <(_blacksmith_board_column_slugs)
+  if [[ -z "$missing" ]]; then printf 'ok\n'; else printf 'mismatch: missing %s\n' "$missing"; fi
+}
+
 # --- Issue creation (native; #26 slice 3) ----------------------------------
 
 # Create an issue and add it to the configured Project v2 board. Echoes the
@@ -967,6 +1193,149 @@ _blacksmith_forgejo_list_issues() {
     || { _blacksmith_die "list_issues (forgejo) query failed"; return 1; }
   printf '%s' "$raw" | jq -c '[ .[]
     | { number, title, state, body: (.body // ""), labels: [ (.labels // [])[] | .name ] } ]'
+}
+
+# --- Issue read/close/label-remove (delivery verbs; #101) --------------------
+
+# Same neutral shape as the GitHub arm. Forgejo has no close reason, so
+# stateReason is always null here.   issue_view <issue_number>
+_blacksmith_forgejo_issue_view() {
+  local issue="$1" owner repo raw comments
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}") \
+    || { _blacksmith_die "issue_view (forgejo): cannot read #$issue"; return 1; }
+  comments=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}/comments" 2>/dev/null) || comments='[]'
+  jq -c --argjson c "$comments" '{
+      number, title, state,
+      stateReason: null,
+      body: (.body // ""),
+      labels: [ (.labels // [])[] | .name ],
+      comments: [ $c[] | .body ],
+      url: .html_url
+    }' <<<"$raw"
+}
+
+# Close an issue (reason accepted-and-ignored — Forgejo has no close reason).
+_blacksmith_forgejo_issue_close() {
+  local issue="$1" owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  _blacksmith_forgejo_curl PATCH "/repos/${owner}/${repo}/issues/${issue}" \
+    "$(jq -nc '{state: "closed"}')" >/dev/null \
+    || { _blacksmith_die "issue_close (forgejo): failed to close #$issue"; return 1; }
+}
+
+# Remove a label by NAME. Forgejo deletes BY LABEL ID, so resolve name -> id off
+# the issue's labels first (same id-resolution archive_item uses). Never fails
+# the caller; unresolvable name = no-op.
+_blacksmith_forgejo_issue_remove_label() {
+  local issue="$1" label="$2" owner repo lid
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  lid=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}/labels" 2>/dev/null \
+        | jq -r --arg n "$label" '[.[] | select(.name == $n)][0].id // empty')
+  [[ -n "$lid" ]] || return 0
+  _blacksmith_forgejo_curl DELETE "/repos/${owner}/${repo}/issues/${issue}/labels/${lid}" >/dev/null 2>&1 || true
+}
+
+# --- PR create / list-merged / open-probe (delivery verbs; #101) --------------
+
+_blacksmith_forgejo_pr_create() {
+  local head="$1" base="$2" title="$3" body="${4:-}" owner repo raw
+  [[ -n "$head" && -n "$base" && -n "$title" ]] || { _blacksmith_die "pr_create: head, base and title required"; return 1; }
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/pulls" \
+        "$(jq -nc --arg h "$head" --arg b "$base" --arg t "$title" --arg d "$body" \
+            '{head:$h, base:$b, title:$t, body:$d}')") \
+    || { _blacksmith_die "pr_create (forgejo): failed ($head -> $base)"; return 1; }
+  jq -c '{number, url: .html_url}' <<<"$raw"
+}
+
+# Forgejo's pulls list has no base filter param — filter client-side on
+# .base.ref; merged is the boolean flag. Same neutral output as the GitHub arm.
+_blacksmith_forgejo_pr_list_merged() {
+  local base="$1" owner repo raw
+  [[ -n "$base" ]] || { _blacksmith_die "pr_list_merged: base branch required"; return 1; }
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/pulls?state=closed&limit=100") \
+    || { _blacksmith_die "pr_list_merged (forgejo): query failed"; return 1; }
+  jq -c --arg b "$base" \
+    '[ .[] | select(.base.ref == $b and .merged == true) | {number, title, headBranch: .head.ref} ]' <<<"$raw"
+}
+
+_blacksmith_forgejo_pr_open_exists() {
+  local head="$1" base="$2" owner repo n
+  [[ -n "$head" && -n "$base" ]] || { _blacksmith_die "pr_open_exists: head and base required"; return 1; }
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  n=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/pulls?state=open&limit=100" 2>/dev/null \
+      | jq --arg h "$head" --arg b "$base" \
+          '[ .[] | select(.head.ref == $h and .base.ref == $b) ] | length') || n=0
+  [[ "$n" -gt 0 ]]
+}
+
+# Forgejo repo create: org-owned (POST /orgs/{owner}/repos) when <owner> is not
+# the authenticated user, else user-owned (POST /user/repos). Reads only
+# .forgejo.base_url from config (owner comes in as the arg — at create time the
+# config's .forgejo.owner may not exist yet).   repo_create <owner> <repo>
+_blacksmith_forgejo_repo_create() {
+  local owner="$1" repo="$2" login raw payload
+  [[ -n "$owner" && -n "$repo" ]] || { _blacksmith_die "repo_create: owner and repo required"; return 1; }
+  login=$(_blacksmith_forgejo_curl GET "/user" 2>/dev/null | jq -r '.login // empty')
+  payload=$(jq -nc --arg n "$repo" '{name: $n, private: true, auto_init: false}')
+  if [[ -n "$login" && "$owner" == "$login" ]]; then
+    raw=$(_blacksmith_forgejo_curl POST "/user/repos" "$payload") \
+      || { _blacksmith_die "repo_create (forgejo): failed for user repo ${repo}"; return 1; }
+  else
+    raw=$(_blacksmith_forgejo_curl POST "/orgs/${owner}/repos" "$payload") \
+      || { _blacksmith_die "repo_create (forgejo): failed for ${owner}/${repo}"; return 1; }
+  fi
+  jq -c '{url: .html_url}' <<<"$raw"
+}
+
+# --- Onboarding probes (#103) — Forgejo -------------------------------------
+
+# Verify token + instance reachability in one authenticated probe; echoes the
+# login. Distinguishes the two failure modes the interview instructs on:
+# missing token vs unreachable/rejecting instance.
+_blacksmith_forgejo_forge_reachable() {
+  local login base
+  base=$(blacksmith_config_get '.forgejo.base_url' 2>/dev/null) || base="<unset>"
+  [[ -n "${FORGEJO_TOKEN:-}" ]] \
+    || { _blacksmith_die "forge_reachable: FORGEJO_TOKEN is unset; add it to the workspace .env"; return 1; }
+  login=$(_blacksmith_forgejo_curl GET "/user" 2>/dev/null | jq -er '.login' 2>/dev/null) \
+    || { _blacksmith_die "forge_reachable: authenticated /user probe failed against ${base}; check the base URL and FORGEJO_TOKEN"; return 1; }
+  printf '%s\n' "$login"
+}
+
+# Interview-time read of the issue-dependencies unit on an EXISTING repo (for a
+# new repo the check runs post-create, inside provision_board). Echoes "ok".
+_blacksmith_forgejo_deps_unit_ok() {
+  local owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  _blacksmith_forgejo_assert_deps_unit "$owner" "$repo" || return 1
+  printf 'ok\n'
+}
+
+# Board-schema verdict via the status/* label set: "ok" | "none" | "mismatch:
+# missing <labels>". Same echo-never-gate contract as the GitHub impl.
+_blacksmith_forgejo_board_schema_ok() {
+  local owner repo raw names slug missing=""
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  raw=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/labels?limit=100" 2>/dev/null) \
+    || { printf 'none\n'; return 0; }
+  names=$(jq -r 'if type == "array" then .[].name else empty end' <<<"$raw" 2>/dev/null \
+    | grep '^status/' || true)
+  [[ -n "$names" ]] || { printf 'none\n'; return 0; }
+  while IFS= read -r slug; do
+    grep -qxF "status/${slug}" <<<"$names" || missing+="${missing:+, }status/${slug}"
+  done < <(_blacksmith_board_column_slugs)
+  if [[ -z "$missing" ]]; then printf 'ok\n'; else printf 'mismatch: missing %s\n' "$missing"; fi
 }
 
 # Probe whether owner/repo exists on the Forgejo instance. Returns 0 if it
@@ -1345,3 +1714,48 @@ if [[ -r "$_HJARNE_LIB" ]]; then source "$_HJARNE_LIB"; fi
 # --- learning-domain seam (optional sibling; tail-sourced AFTER hjarne, exit-status-neutral) ---
 _LEARNING_LIB="$(dirname "${BASH_SOURCE[0]}")/learning-lib.sh"
 if [[ -r "$_LEARNING_LIB" ]]; then source "$_LEARNING_LIB"; fi
+
+# --- workspace .env auto-load (#102) ---------------------------------------
+# Load <workspace>/.env into the process environment at source time. Each
+# `KEY=VAL` line SETs and EXPORTs KEY, but ONLY when KEY is currently unset —
+# a pre-existing process-env value always wins. Values are assigned literally
+# (never eval'd, never echoed). Quiet no-op outside a workspace (mirrors
+# blacksmith_global_config_path). Idempotent via a once-guard. Safe under set -u.
+blacksmith_load_workspace_env() {
+  [[ -n "${_BLACKSMITH_ENV_LOADED:-}" ]] && return 0
+  _BLACKSMITH_ENV_LOADED=1
+  local ws envfile line key val
+  ws=$(blacksmith_workspace_dir 2>/dev/null) || return 0
+  envfile="$ws/.env"
+  [[ -f "$envfile" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    # trim leading whitespace
+    line="${line#"${line%%[![:space:]]*}"}"
+    # skip blanks and comments
+    [[ -z "$line" || "$line" == '#'* ]] && continue
+    # tolerate a leading `export `
+    line="${line#export }"
+    # require a KEY=VALUE shape
+    [[ "$line" == *=* ]] || continue
+    key="${line%%=*}"
+    val="${line#*=}"
+    # trim trailing whitespace off the key
+    key="${key%"${key##*[![:space:]]}"}"
+    # KEY must be a valid shell identifier
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    # pre-existing process env wins: only set when currently UNSET
+    [[ -n "${!key+x}" ]] && continue
+    # strip one layer of matching surrounding quotes
+    if [[ ${#val} -ge 2 && "$val" == '"'*'"' ]]; then
+      val="${val:1:${#val}-2}"
+    elif [[ ${#val} -ge 2 && "$val" == "'"*"'" ]]; then
+      val="${val:1:${#val}-2}"
+    fi
+    export "$key=$val"
+  done < "$envfile"
+  return 0
+}
+
+# Auto-load at source time. Failure-tolerant: the ~22 bin/ scripts source this
+# under `set -euo pipefail`, so a load hiccup must never abort them.
+blacksmith_load_workspace_env || true
