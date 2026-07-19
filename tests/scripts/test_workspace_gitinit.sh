@@ -126,3 +126,45 @@ fi
 git -C "$WS4" ls-files | grep -q '^.oskr/config.json$' \
   || { echo "FAIL: .oskr/config.json not tracked" >&2; exit 1; }
 echo "test_workspace_gitinit T4 hygiene: PASS"
+
+# ============================ T5: save =======================================
+WS5="$TMPROOT/ws-save"
+"$SETUP" skeleton "$WS5"; OSKR_FORGE=github "$SETUP" write-config "$WS5"
+"$SETUP" git-init "$WS5"
+
+# (a) no-op idempotency: clean tree -> exit 0 twice, HEAD unchanged on re-run
+"$SETUP" save "$WS5" || { echo "FAIL: save on clean tree exited non-zero" >&2; exit 1; }
+HEAD_BEFORE=$(git -C "$WS5" rev-parse HEAD)
+"$SETUP" save "$WS5" || { echo "FAIL: second no-op save exited non-zero" >&2; exit 1; }
+assert_eq "$HEAD_BEFORE" "$(git -C "$WS5" rev-parse HEAD)" \
+  "no-op save leaves HEAD unchanged" || exit 1
+
+# (b) registry check-in: append an entry, save, the commit carries it, tree clean
+jq '.projects += [{name:"widget", path:"projects/widget", forge:"github",
+    github:{owner:"acme", repo:"widget", project_number:0}}]' \
+  "$WS5/.oskr/registry.json" > "$WS5/.oskr/registry.json.tmp" \
+  && mv "$WS5/.oskr/registry.json.tmp" "$WS5/.oskr/registry.json"
+"$SETUP" save "$WS5" -m "register widget"
+git -C "$WS5" show HEAD:.oskr/registry.json | grep -qF widget \
+  || { echo "FAIL: saved commit does not carry the registry entry" >&2; exit 1; }
+test -z "$(git -C "$WS5" status --porcelain)" \
+  || { echo "FAIL: working tree not clean after save" >&2; exit 1; }
+
+# (c) identity: the save commit used the injected identity (ambient cleared at top)
+assert_eq "oskr <oskr@squirrlylabs.local>" \
+  "$(git -C "$WS5" log -1 --format='%an <%ae>')" "save commit identity" || exit 1
+
+# (d) guard: save on a non-repo workspace dies pointing at git-init
+WS5N="$TMPROOT/ws-save-norepo"
+"$SETUP" skeleton "$WS5N"
+if OUT=$("$SETUP" save "$WS5N" 2>&1); then
+  echo "FAIL: save on a non-repo workspace succeeded" >&2; exit 1
+fi
+grep -qF "run git-init first" <<<"$OUT" \
+  || { echo "FAIL: guard message missing 'run git-init first'" >&2; exit 1; }
+
+# (e) push-free: no line in the verb file pairs whole-word git with whole-word push
+if grep -qE '(^|[^a-z])git([^a-z].*)?[^a-z]push([^a-z]|$)' "$REPO_ROOT/bin/oskr-setup.sh"; then
+  echo "FAIL: a line in bin/oskr-setup.sh pairs 'git' with 'push'" >&2; exit 1
+fi
+echo "test_workspace_gitinit T5 save: PASS"

@@ -183,6 +183,34 @@ oskr_setup_rehydrate() {
   done
 }
 
+# save <workspace_dir> [-m <msg>] — identity-injected checkpoint commit of the
+# workspace control plane (default message "oskr save"). Sweeps everything
+# (add -A): the sweep is DELIBERATE — untracked non-secret root junk rides
+# along, acceptable for a control-plane repo because the .gitignore contract
+# keeps secrets and projects/ out. No-op (exit 0, HEAD unchanged) on a clean
+# tree. Local-only: publishing is the skill's confirmed final phase.
+oskr_setup_save() {
+  local ws="${1:-$PWD}"; [[ "$#" -gt 0 ]] && shift
+  local msg="oskr save"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -m) [[ $# -ge 2 ]] || _setup_die "save: -m requires a message"; msg="$2"; shift 2 ;;
+      *)  _setup_die "save: unknown flag '$1'" ;;
+    esac
+  done
+  git -C "$ws" rev-parse --git-dir >/dev/null 2>&1 \
+    || _setup_die "save: $ws is not a git repo — run git-init first"
+  git -C "$ws" add -A
+  if [[ -z "$(git -C "$ws" status --porcelain)" ]]; then
+    echo "save: nothing to commit"
+    return 0
+  fi
+  git -C "$ws" \
+    -c user.email="${OSKR_GIT_EMAIL:-oskr@squirrlylabs.local}" \
+    -c user.name="${OSKR_GIT_NAME:-oskr}" \
+    commit -q -m "$msg"
+}
+
 cmd="${1:-}"; [[ "$#" -gt 0 ]] && shift
 case "$cmd" in
   skeleton)     oskr_setup_skeleton "$@" ;;
@@ -190,5 +218,6 @@ case "$cmd" in
   bootstrap)    oskr_setup_bootstrap "$@" ;;
   git-init)     oskr_setup_git_init "$@" ;;
   rehydrate)    oskr_setup_rehydrate "$@" ;;
-  *)            _setup_die "usage: oskr-setup.sh {skeleton|write-config|bootstrap|git-init|rehydrate} [workspace_dir] [--dry-run]" ;;
+  save)         oskr_setup_save "$@" ;;
+  *)            _setup_die "usage: oskr-setup.sh {skeleton|write-config|bootstrap|git-init|rehydrate|save} [workspace_dir] [--dry-run|-m <msg>]" ;;
 esac
