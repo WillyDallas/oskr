@@ -2,7 +2,7 @@
 name: oskr-setup
 description: One-time interactive bootstrap for a fresh oskr workspace. Creates the workspace skeleton (.oskr/, projects/, hjarne/, learning/) via the seam-tested bin/oskr-setup.sh verb, gathers global config (backend + default base branch) into .oskr/config.json, instruct-and-verifies credentials into the workspace .env / gh keychain, delegates brain/teach setup only if those skills are present, and hands off to init-project for project #1. Run from inside the directory you want to become the workspace control plane.
 argument-hint: "(no arguments — interactive)"
-allowed-tools: Bash(oskr-setup.sh*) Bash(mkdir *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(gh auth*) Read Write Edit
+allowed-tools: Bash(oskr-setup.sh*) Bash(git *) Bash(mkdir *) Bash(mktemp *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(gh auth*) Bash(source "$CLAUDE_PLUGIN_ROOT/bin/*.sh") Read Write Edit
 ---
 
 You are standing up a developer's oskr **workspace** — the control plane that holds
@@ -75,8 +75,8 @@ oskr-setup.sh git-init "$WS"
 This runs `git init`, writes the `.gitignore` contract (ignores `.env`/`*.key`/
 `*.pem`/`secrets/`/`projects/`; tracks `.oskr/config.json`, `.oskr/registry.json`,
 `hjarne/**`, `learning/**`), sets the `origin` remote, and lands an initial commit
-with an injected identity. It **never pushes** — create the remote repo and
-`git push -u origin` yourself, or leave it local.
+with an injected identity. It **never pushes** — publishing (repo-create + push)
+is the confirmed final phase below, or leave it local.
 
 Remote URL: set `OSKR_WORKSPACE_REMOTE` for a full URL, else it composes
 `OSKR_WORKSPACE_SLUG` (default `squirrlylabs/workspace`) onto the configured forge.
@@ -102,3 +102,65 @@ These belong to later Areas (brain #28, teach #30) and may not exist yet.
 Close by pointing the developer to the next step:
 
 > Workspace ready at `$WS`. Next, run **`init-project`** (from anywhere inside the workspace) to onboard **project #1** — new repo, imported local folder, or clone.
+
+## Phase 6: Publish the workspace (confirmed push — final phase)
+
+The workspace repo now has local commits and an `origin` remote, but nothing on
+the forge. Ask before pushing — never push without a yes.
+
+**Ask:** "Publish the workspace to `<origin URL>` now? This creates the remote
+repo (private) if it doesn't exist and pushes the control plane. (yes/no)"
+
+**On decline**, close with exactly this line and stop:
+
+> workspace has unpushed commits; run `git -C "$WS" push` when ready
+
+**On yes**, run the publish block. `_blacksmith_forge` reads only the
+`HARNESS_CONFIG`/`$PWD` config tiers and silently defaults to `github`, so the
+workspace's forge selection MUST be carried in via a synthesized minimal
+harness-config — jq-derived from `.oskr/config.json`. `blacksmith_repo_create`
+takes owner/repo as ARGS; from config it reads only `.forge` (dispatch) and, on
+the forgejo arm, `.forgejo.base_url` (`.github.owner` rides along for shape
+completeness). Forgejo also needs `FORGEJO_TOKEN` in the environment (Phase 2
+put it in `$WS/.env`).
+
+```bash
+WS="${OSKR_WORKSPACE:-$PWD}"
+# forgejo credentials, if any (no-op for github; gh keychain covers it)
+[ -f "$WS/.env" ] && set -a && source "$WS/.env" && set +a
+
+# Owner/repo of the WORKSPACE repo: the last two path segments of origin
+# (honors OSKR_WORKSPACE_REMOTE / OSKR_WORKSPACE_SLUG, whichever composed it).
+ORIGIN=$(git -C "$WS" remote get-url origin)
+WS_REPO=$(basename "$ORIGIN" .git)
+WS_OWNER=$(basename "$(dirname "$ORIGIN")")
+
+# Synthesize the minimal harness-config the blacksmith dispatch reads.
+PUBLISH_CFG=$(mktemp)
+jq '{forge: .forge,
+     github:  {owner: .github.owner},
+     forgejo: {base_url: .forgejo.base_url}}' \
+  "$WS/.oskr/config.json" > "$PUBLISH_CFG"
+export HARNESS_CONFIG="$PUBLISH_CFG"
+
+source "$CLAUDE_PLUGIN_ROOT/bin/harness-lib.sh"
+
+# Create the remote repo only if origin isn't reachable yet.
+if git -C "$WS" ls-remote origin >/dev/null 2>&1; then
+  echo "remote repo already exists; skipping create"
+else
+  blacksmith_repo_create "$WS_OWNER" "$WS_REPO"   # echoes {url}
+fi
+
+BRANCH=$(git -C "$WS" symbolic-ref --short HEAD)
+git -C "$WS" push -u origin "$BRANCH"
+```
+
+Confirm: `git -C "$WS" status -sb` shows the branch tracking `origin/<branch>`
+with nothing to push.
+
+**Mixed forges:** projects rehydrate from each registry entry's OWN coords, so
+projects on different forges/instances coexist in one workspace. The workspace
+repo itself tracks ONE remote — a workspace tracked on a different
+forge/instance than `.oskr/config.json`'s forge is the `OSKR_WORKSPACE_REMOTE`
+override edge case.
