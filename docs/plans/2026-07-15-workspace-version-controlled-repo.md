@@ -1,17 +1,20 @@
 # Workspace as a Version-Controlled Repo (git-init + rehydrate) Implementation Plan
 
-**Goal:** Add two disk-touching verbs to `bin/oskr-setup.sh` — `git-init` (put the workspace under version control with a secrets-safe .gitignore contract, a composed `origin` remote, and an identity-injected initial commit) and `rehydrate` (re-clone managed projects from `.oskr/registry.json` into `projects/`).
-**Architecture:** Both verbs are pure local git + jq — they mutate the workspace filesystem/git state but touch NO forge API (no `gh`/`curl`), so they stay outside the backend seam. `git-init` sets a remote but never pushes; `rehydrate --dry-run` clones nothing; the full-clone path targets a LOCAL `git init --bare` fixture. Mirrors the `# --- execution arms (disk-touching)` marker from `init-lib.sh:99`.
+**Goal:** Add three disk-touching verbs to `bin/oskr-setup.sh` — `git-init` (put the workspace under version control with a secrets-safe .gitignore contract, a composed `origin` remote, and an identity-injected initial commit), `rehydrate` (re-clone managed projects from `.oskr/registry.json` into `projects/`), and `save` (identity-injected checkpoint commit, never pushes) — plus confirmed-push publish/save wiring in the two skills.
+**Architecture:** All verbs are pure local git + jq — they mutate the workspace filesystem/git state but touch NO forge API (no `gh`/`curl`), so they stay outside the backend seam. `git-init` sets a remote but never pushes; `save` commits but never pushes; `rehydrate --dry-run` clones nothing; the full-clone path targets a LOCAL `git init --bare` fixture. Pushing lives ONLY in the skills, behind an explicit yes: `oskr-setup` gains a final "Publish the workspace" phase (repo-create via the existing `blacksmith_repo_create` seam verb + `push -u origin`), and `init-project` saves the registry after each register path and offers a push. Mirrors the `# --- execution arms (disk-touching)` marker from `init-lib.sh:99`.
 **Tech Stack:** Bash (`set -euo pipefail`), `git` CLI, `jq`, the repo's `tests/scripts/lib/assert.sh` harness, auto-discovered by `run-tests.sh`.
 **Issue:** #113
+
+**Revision (2026-07-19):** GATE 2 rejection feedback folded in — (1) a confirmed-push final step for both forges (the plan shipped a repo that never reaches a remote), (2) the registry-as-rehydration-artifact stale-registry gap (`registry.sh add` mutates `.oskr/registry.json` but nothing committed it, so a rehydrate on a new machine reconstructed a stale project set), and (3) a mixed-forge doc line. Addressed as new tasks T5 (`save` verb, TDD), T6 (oskr-setup Publish phase), T7 (init-project save-after-register). **T1–T4 are unchanged from the PASSed v1 (99/100)** except one sentence of T4's Phase 3b prose, amended by T6 (noted there).
 
 ---
 
 ## Exemptions (stated per agent contract)
 
 - **No Playwright AC.** This issue ships shell verbs plus a shell seam test — zero UI, zero navigation/auth surface. The Playwright tier does not apply.
-- **No live-forge AC.** `git-init` sets a remote but never pushes; `rehydrate --dry-run` clones nothing; the full-clone path is exercised against a LOCAL `git init --bare` fixture in the tmpdir, not a network remote. Live Forgejo push + full new-machine round-trip are deferred to a guided checklist / `bin/smoke` and dogfooded live by #91.
-- **T4 SKILL.md wiring uses the harness-infra substitution** (write AC → grep check → implement), not TDD red/green — it is a prose doc change with no runtime seam. Explicitly flagged in T4.
+- **No live-forge AC.** `git-init` sets a remote but never pushes; `save` commits but never pushes; `rehydrate --dry-run` clones nothing; the full-clone path is exercised against a LOCAL `git init --bare` fixture in the tmpdir, not a network remote. Live push + live `blacksmith_repo_create` + full new-machine round-trip are deferred to a guided checklist / `bin/smoke` and dogfooded live by #91.
+- **Testing tier for the revision:** `save` is the only new *runtime* surface and gets the hermetic seam tier (T5, TDD in `tests/scripts/test_workspace_gitinit.sh`). **T4, T6 and T7 SKILL.md wiring use the harness-infra substitution** (write AC → grep check → implement), not TDD red/green — they are prose doc changes with no runtime seam. Explicitly flagged in each task.
+- **No `.claude/rules/` design-rule ACs** — the repo declares no such rules; per contract this class is a no-op.
 
 ## Cross-task dependencies
 
@@ -19,6 +22,10 @@
 - **T2 → T1** — extends the same `git-init` function with remote composition + identity commit + idempotency.
 - **T3** — independent of T2 (shares only the mktemp fixture style; adds the `rehydrate` verb).
 - **T4 → T2, T3** — ls-files hygiene needs a committed workspace (T2) and asserts the whole suite + seam guard green after both verbs land; wires SKILL.md.
+- **T5 → T2** — `save` extends the same test file and needs a git-init'd workspace (identity-injected baseline commit) as its fixture.
+- **T6 → T2, T4, T5** — the Publish phase documents/relies on git-init's remote + save's checkpoint semantics; the `save` verb name is frozen by T5 (it is: `save`); T4 must land first because T6 Step 2b amends a Phase 3b sentence that only exists after T4 writes it.
+- **T7 → T5** — init-project calls `oskr-setup.sh save`, so the verb must exist first. D8 prose is written only after D7's verb name is frozen.
+- **T6 ⊥ T7** — independent of each other (different SKILL.md files); either order.
 
 ## Frozen external contracts (do not re-derive)
 
@@ -29,6 +36,12 @@
 - Workspace-remote precedence: (1) `OSKR_WORKSPACE_REMOTE` verbatim; (2) else compose `OSKR_WORKSPACE_SLUG` (default `squirrlylabs/workspace`) onto the forge base (`github` → `https://github.com/<slug>.git`; `forgejo` → `<forgejo.base_url without trailing />/<slug>.git`). The workspace slug is DISTINCT from `config.github.owner`.
 - Per-project clone URL from each registry entry's OWN coords: github → `https://github.com/<owner>/<repo>.git`; forgejo → `<base_url without trailing />/<owner>/<repo>.git`.
 - Git identity injection: `git -c user.email="${OSKR_GIT_EMAIL:-oskr@squirrlylabs.local}" -c user.name="${OSKR_GIT_NAME:-oskr}" commit ...`.
+- **`save` contract (D7):** `save <ws> [-m <msg>]` — identity-injected `git add -A` + commit (default message `oskr save`); no-op exit 0 (HEAD unchanged) on a clean tree; dies with `run git-init first` (via `_setup_die`) when `<ws>` is not a git repo; NEVER pushes.
+- **Forge-context mechanism for publish (D9, option a — mandatory):** `_blacksmith_forge` reads only the `HARNESS_CONFIG`/`$PWD` config tiers (`bin/harness-lib.sh:113-118` via `blacksmith_config_path`, `:29-43`) and silently defaults to `github` — so the Publish phase synthesizes a minimal harness-config into a temp file (jq-derived from `.oskr/config.json`: `.forge`, `.forgejo.base_url`, `.github.owner`) and `export HARNESS_CONFIG=<tempfile>` before sourcing `harness-lib.sh` and calling `blacksmith_repo_create` (dispatcher `:176`; github arm `:938` takes owner/repo as args, reads no config; forgejo arm `:1284` reads only `.forgejo.base_url` via `_blacksmith_forgejo_curl` `:1157-1159` plus `FORGEJO_TOKEN` from env). **Zero `bin/` change.**
+- **Pinned verbatim strings** (grep `-qF` AC targets — copy exactly, one line each):
+  - Ask-first: `Ask before pushing — never push without a yes.`
+  - Decline/staleness (in BOTH skills' decline branches): ``workspace has unpushed commits; run `git -C "$WS" push` when ready``
+- **Comment-wording constraint (D7):** no line in `bin/oskr-setup.sh` may pair whole-word `git` and `push` — the push-free grep AC is `! grep -qE '(^|[^a-z])git([^a-z].*)?[^a-z]push([^a-z]|$)' bin/oskr-setup.sh`. Words like `pushes`/`pushing` are safe (the trailing letter breaks the match).
 
 ---
 
@@ -477,13 +490,336 @@ Expected: all exit 0 — new test PASSes end to end (T1–T4), the seam guard st
 
 ---
 
+## Task 5: `save` verb — identity-injected checkpoint commit (TDD)
+
+**Files:**
+- Modify: `bin/oskr-setup.sh` (add `oskr_setup_save`, dispatcher entry, usage)
+- Modify: `tests/scripts/test_workspace_gitinit.sh` (append T5 section)
+
+**Depends on:** T2 (fixture is a git-init'd workspace with the identity-injected baseline commit).
+
+**Design notes (required prose, per DoD):**
+- The `git add -A` sweep is **DELIBERATE** — untracked non-secret root junk rides along with a save. That is acceptable for a control-plane repo because the `.gitignore` contract (T1) keeps secrets (`.env`/`*.key`/`*.pem`/`secrets/`) and `projects/` out; everything else in the workspace root *is* control-plane state worth checkpointing.
+- **Comment-wording constraint:** AC (e) below greps `bin/oskr-setup.sh` for any single line pairing whole-word `git` with whole-word `push`. When writing comments/messages in that file, never put `git` and `push` on the same line — `pushes`/`pushing` are safe (trailing letter breaks the `push([^a-z]|$)` match). The implementation below already complies; keep any new comment lines compliant.
+
+**Acceptance Criteria:**
+- [ ] (a) No-op idempotency — `Run: oskr-setup.sh save "$WS" && H=$(git -C "$WS" rev-parse HEAD) && oskr-setup.sh save "$WS" && test "$H" = "$(git -C "$WS" rev-parse HEAD)"` → `Expected: exit 0` (both saves exit 0; HEAD identical across the second run).
+- [ ] (b) Registry check-in — after jq-appending an entry named `widget` to `.oskr/registry.json` and `oskr-setup.sh save "$WS" -m "register widget"`: `Run: git -C "$WS" show HEAD:.oskr/registry.json | grep -qF widget` → `Expected: exit 0`, AND `Run: test -z "$(git -C "$WS" status --porcelain)"` → `Expected: exit 0`.
+- [ ] (c) Identity — `Run: git -C "$WS" log -1 --format='%an <%ae>'` (ambient identity cleared) → `Expected: stdout == "oskr <oskr@squirrlylabs.local>"`.
+- [ ] (d) Guard — `Run: oskr-setup.sh save "$WS_NOREPO" 2>&1 | grep -qF 'run git-init first'` on a skeleton-only (non-repo) workspace → `Expected: grep exit 0 and the save itself exits non-zero`.
+- [ ] (e) Push-free — `Run: ! grep -qE '(^|[^a-z])git([^a-z].*)?[^a-z]push([^a-z]|$)' bin/oskr-setup.sh` → `Expected: exit 0`.
+- [ ] `Run: bash -n bin/oskr-setup.sh` → `Expected: exit 0`.
+
+**Step 1: Write the failing test** — append to `tests/scripts/test_workspace_gitinit.sh`:
+
+```bash
+# ============================ T5: save =======================================
+WS5="$TMPROOT/ws-save"
+"$SETUP" skeleton "$WS5"; OSKR_FORGE=github "$SETUP" write-config "$WS5"
+"$SETUP" git-init "$WS5"
+
+# (a) no-op idempotency: clean tree -> exit 0 twice, HEAD unchanged on re-run
+"$SETUP" save "$WS5" || { echo "FAIL: save on clean tree exited non-zero" >&2; exit 1; }
+HEAD_BEFORE=$(git -C "$WS5" rev-parse HEAD)
+"$SETUP" save "$WS5" || { echo "FAIL: second no-op save exited non-zero" >&2; exit 1; }
+assert_eq "$HEAD_BEFORE" "$(git -C "$WS5" rev-parse HEAD)" \
+  "no-op save leaves HEAD unchanged" || exit 1
+
+# (b) registry check-in: append an entry, save, the commit carries it, tree clean
+jq '.projects += [{name:"widget", path:"projects/widget", forge:"github",
+    github:{owner:"acme", repo:"widget", project_number:0}}]' \
+  "$WS5/.oskr/registry.json" > "$WS5/.oskr/registry.json.tmp" \
+  && mv "$WS5/.oskr/registry.json.tmp" "$WS5/.oskr/registry.json"
+"$SETUP" save "$WS5" -m "register widget"
+git -C "$WS5" show HEAD:.oskr/registry.json | grep -qF widget \
+  || { echo "FAIL: saved commit does not carry the registry entry" >&2; exit 1; }
+test -z "$(git -C "$WS5" status --porcelain)" \
+  || { echo "FAIL: working tree not clean after save" >&2; exit 1; }
+
+# (c) identity: the save commit used the injected identity (ambient cleared at top)
+assert_eq "oskr <oskr@squirrlylabs.local>" \
+  "$(git -C "$WS5" log -1 --format='%an <%ae>')" "save commit identity" || exit 1
+
+# (d) guard: save on a non-repo workspace dies pointing at git-init
+WS5N="$TMPROOT/ws-save-norepo"
+"$SETUP" skeleton "$WS5N"
+if OUT=$("$SETUP" save "$WS5N" 2>&1); then
+  echo "FAIL: save on a non-repo workspace succeeded" >&2; exit 1
+fi
+grep -qF "run git-init first" <<<"$OUT" \
+  || { echo "FAIL: guard message missing 'run git-init first'" >&2; exit 1; }
+
+# (e) push-free: no line in the verb file pairs whole-word git with whole-word push
+if grep -qE '(^|[^a-z])git([^a-z].*)?[^a-z]push([^a-z]|$)' "$REPO_ROOT/bin/oskr-setup.sh"; then
+  echo "FAIL: a line in bin/oskr-setup.sh pairs 'git' with 'push'" >&2; exit 1
+fi
+echo "test_workspace_gitinit T5 save: PASS"
+```
+
+**Step 2: Run test to verify it fails**
+Run: `bash tests/scripts/test_workspace_gitinit.sh`
+Expected: FAIL — `oskr-setup.sh save ...` hits the `*)` dispatcher arm and dies with the usage message (exit 1).
+
+**Step 3: Write minimal implementation** — in `bin/oskr-setup.sh`, add below `oskr_setup_rehydrate`:
+
+```bash
+# save <workspace_dir> [-m <msg>] — identity-injected checkpoint commit of the
+# workspace control plane (default message "oskr save"). Sweeps everything
+# (add -A): the sweep is DELIBERATE — untracked non-secret root junk rides
+# along, acceptable for a control-plane repo because the .gitignore contract
+# keeps secrets and projects/ out. No-op (exit 0, HEAD unchanged) on a clean
+# tree. Local-only: publishing is the skill's confirmed final phase.
+oskr_setup_save() {
+  local ws="${1:-$PWD}"; [[ "$#" -gt 0 ]] && shift
+  local msg="oskr save"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -m) [[ $# -ge 2 ]] || _setup_die "save: -m requires a message"; msg="$2"; shift 2 ;;
+      *)  _setup_die "save: unknown flag '$1'" ;;
+    esac
+  done
+  git -C "$ws" rev-parse --git-dir >/dev/null 2>&1 \
+    || _setup_die "save: $ws is not a git repo — run git-init first"
+  git -C "$ws" add -A
+  if [[ -z "$(git -C "$ws" status --porcelain)" ]]; then
+    echo "save: nothing to commit"
+    return 0
+  fi
+  git -C "$ws" \
+    -c user.email="${OSKR_GIT_EMAIL:-oskr@squirrlylabs.local}" \
+    -c user.name="${OSKR_GIT_NAME:-oskr}" \
+    commit -q -m "$msg"
+}
+```
+
+Then extend the dispatcher + usage:
+
+```bash
+  git-init)     oskr_setup_git_init "$@" ;;
+  rehydrate)    oskr_setup_rehydrate "$@" ;;
+  save)         oskr_setup_save "$@" ;;
+  *)            _setup_die "usage: oskr-setup.sh {skeleton|write-config|bootstrap|git-init|rehydrate|save} [workspace_dir] [--dry-run|-m <msg>]" ;;
+```
+
+**Step 4: Run test to verify it passes**
+Run: `bash tests/scripts/test_workspace_gitinit.sh && bash -n bin/oskr-setup.sh`
+Expected: PASS (T1–T4 + `test_workspace_gitinit T5 save: PASS`); `bash -n` exit 0.
+
+**Step 5: Commit** — `git add bin/oskr-setup.sh tests/scripts/test_workspace_gitinit.sh && git commit -m "feat(oskr-setup): save verb — identity-injected checkpoint commit, no-op on clean tree (#113)"`
+
+---
+
+## Task 6: oskr-setup SKILL.md — "Publish the workspace" phase + mixed-forge doc line
+
+**Files:**
+- Modify: `skills/oskr-setup/SKILL.md` (frontmatter allowed-tools; amend one Phase 3b sentence; append the Publish phase as the new last phase)
+
+**Depends on:** T2, T4, T5 (T4 first — Step 2b amends T4's Phase 3b sentence). Independent of T7.
+
+**Note (harness-infra substitution):** prose/frontmatter doc change with no runtime seam — uses the *write AC → grep check → implement* form, not TDD red/green. Deliberate substitution per the agent contract.
+
+**Acceptance Criteria** (each `Run:` line → `Expected: exit 0`):
+- [ ] `Run: grep -qF 'blacksmith_repo_create' skills/oskr-setup/SKILL.md`
+- [ ] `Run: grep -qF 'push -u origin' skills/oskr-setup/SKILL.md`
+- [ ] `Run: grep -qF 'export HARNESS_CONFIG=' skills/oskr-setup/SKILL.md`
+- [ ] `Run: grep -qF '.oskr/config.json' skills/oskr-setup/SKILL.md`
+- [ ] `Run: grep -qF 'Ask before pushing — never push without a yes.' skills/oskr-setup/SKILL.md`
+- [ ] `Run: grep -qF 'workspace has unpushed commits; run \`git -C "$WS" push\` when ready' skills/oskr-setup/SKILL.md` (literal backticks; use single-quoted grep pattern: `grep -qF 'workspace has unpushed commits; run `git -C "$WS" push` when ready' ...`)
+- [ ] `Run: grep -qF 'Bash(git *)' skills/oskr-setup/SKILL.md`
+- [ ] `Run: grep -qF 'OSKR_WORKSPACE_REMOTE' skills/oskr-setup/SKILL.md`
+
+**Step 1: Confirm the ACs fail before implementation**
+Run: `grep -qF 'blacksmith_repo_create' skills/oskr-setup/SKILL.md; echo $?`
+Expected: `1` (and likewise for `export HARNESS_CONFIG=`, the pinned sentences, `Bash(git *)`). (`OSKR_WORKSPACE_REMOTE` and `push -u origin` already hit via T4's Phase 3b — they guard against regression, not novelty.)
+
+**Step 2: Implement** — three edits to `skills/oskr-setup/SKILL.md`:
+
+**(2a) Frontmatter** — widen `allowed-tools` (line 5) to add `Bash(git *)`, `Bash(source "$CLAUDE_PLUGIN_ROOT/bin/*.sh")` (precedent: `skills/init-project/SKILL.md:5`), and `Bash(mktemp *)` (needed for the synthesized config temp file):
+
+```
+allowed-tools: Bash(oskr-setup.sh*) Bash(git *) Bash(mkdir *) Bash(mktemp *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(gh auth*) Bash(source "$CLAUDE_PLUGIN_ROOT/bin/*.sh") Read Write Edit
+```
+
+**(2b) Phase 3b harmonization** — replace the T4 sentence
+
+> It **never pushes** — create the remote repo and `git push -u origin` yourself, or leave it local.
+
+with
+
+> It **never pushes** — publishing (repo-create + push) is the confirmed final phase below, or leave it local.
+
+(This is the one deliberate touch to T4's output noted in the revision header.)
+
+**(2c) Append the new final phase** after Phase 5:
+
+````markdown
+## Phase 6: Publish the workspace (confirmed push — final phase)
+
+The workspace repo now has local commits and an `origin` remote, but nothing on
+the forge. Ask before pushing — never push without a yes.
+
+**Ask:** "Publish the workspace to `<origin URL>` now? This creates the remote
+repo (private) if it doesn't exist and pushes the control plane. (yes/no)"
+
+**On decline**, close with exactly this line and stop:
+
+> workspace has unpushed commits; run `git -C "$WS" push` when ready
+
+**On yes**, run the publish block. `_blacksmith_forge` reads only the
+`HARNESS_CONFIG`/`$PWD` config tiers and silently defaults to `github`, so the
+workspace's forge selection MUST be carried in via a synthesized minimal
+harness-config — jq-derived from `.oskr/config.json`. `blacksmith_repo_create`
+takes owner/repo as ARGS; from config it reads only `.forge` (dispatch) and, on
+the forgejo arm, `.forgejo.base_url` (`.github.owner` rides along for shape
+completeness). Forgejo also needs `FORGEJO_TOKEN` in the environment (Phase 2
+put it in `$WS/.env`).
+
+```bash
+WS="${OSKR_WORKSPACE:-$PWD}"
+# forgejo credentials, if any (no-op for github; gh keychain covers it)
+[ -f "$WS/.env" ] && set -a && source "$WS/.env" && set +a
+
+# Owner/repo of the WORKSPACE repo: the last two path segments of origin
+# (honors OSKR_WORKSPACE_REMOTE / OSKR_WORKSPACE_SLUG, whichever composed it).
+ORIGIN=$(git -C "$WS" remote get-url origin)
+WS_REPO=$(basename "$ORIGIN" .git)
+WS_OWNER=$(basename "$(dirname "$ORIGIN")")
+
+# Synthesize the minimal harness-config the blacksmith dispatch reads.
+PUBLISH_CFG=$(mktemp)
+jq '{forge: .forge,
+     github:  {owner: .github.owner},
+     forgejo: {base_url: .forgejo.base_url}}' \
+  "$WS/.oskr/config.json" > "$PUBLISH_CFG"
+export HARNESS_CONFIG="$PUBLISH_CFG"
+
+source "$CLAUDE_PLUGIN_ROOT/bin/harness-lib.sh"
+
+# Create the remote repo only if origin isn't reachable yet.
+if git -C "$WS" ls-remote origin >/dev/null 2>&1; then
+  echo "remote repo already exists; skipping create"
+else
+  blacksmith_repo_create "$WS_OWNER" "$WS_REPO"   # echoes {url}
+fi
+
+BRANCH=$(git -C "$WS" symbolic-ref --short HEAD)
+git -C "$WS" push -u origin "$BRANCH"
+```
+
+Confirm: `git -C "$WS" status -sb` shows the branch tracking `origin/<branch>`
+with nothing to push.
+
+**Mixed forges:** projects rehydrate from each registry entry's OWN coords, so
+projects on different forges/instances coexist in one workspace. The workspace
+repo itself tracks ONE remote — a workspace tracked on a different
+forge/instance than `.oskr/config.json`'s forge is the `OSKR_WORKSPACE_REMOTE`
+override edge case.
+````
+
+**Step 3: Run the grep checks to verify they pass**
+Run:
+```bash
+grep -qF 'blacksmith_repo_create' skills/oskr-setup/SKILL.md \
+ && grep -qF 'push -u origin' skills/oskr-setup/SKILL.md \
+ && grep -qF 'export HARNESS_CONFIG=' skills/oskr-setup/SKILL.md \
+ && grep -qF '.oskr/config.json' skills/oskr-setup/SKILL.md \
+ && grep -qF 'Ask before pushing — never push without a yes.' skills/oskr-setup/SKILL.md \
+ && grep -qF 'workspace has unpushed commits; run `git -C "$WS" push` when ready' skills/oskr-setup/SKILL.md \
+ && grep -qF 'Bash(git *)' skills/oskr-setup/SKILL.md \
+ && grep -qF 'OSKR_WORKSPACE_REMOTE' skills/oskr-setup/SKILL.md
+```
+Expected: exit 0.
+
+**Step 4: Commit** — `git add skills/oskr-setup/SKILL.md && git commit -m "feat(oskr-setup): confirmed-push Publish phase via blacksmith_repo_create + synthesized HARNESS_CONFIG (#113)"`
+
+---
+
+## Task 7: init-project SKILL.md — save-after-register + push offer
+
+**Files:**
+- Modify: `skills/init-project/SKILL.md` (frontmatter allowed-tools; save + push-offer after BOTH register paths)
+
+**Depends on:** T5 (the `save` verb must exist; its name is frozen: `save`). Independent of T6.
+
+**Note (harness-infra substitution):** prose/frontmatter doc change with no runtime seam — uses the *write AC → grep check → implement* form, not TDD red/green. Deliberate substitution per the agent contract.
+
+**Acceptance Criteria** (each `Run:` line → `Expected: exit 0`):
+- [ ] `Run: grep -qF 'oskr-setup.sh save' skills/init-project/SKILL.md`
+- [ ] `Run: grep -qF 'workspace has unpushed commits; run \`git -C "$WS" push\` when ready' skills/init-project/SKILL.md` (literal backticks, single-quoted pattern as in T6)
+- [ ] `Run: grep -qF 'Bash(oskr-setup.sh' skills/init-project/SKILL.md`
+- [ ] Seam guard + whole suite — `Run: bash tests/scripts/test_backend_no_inline_gh.sh && tests/scripts/run-tests.sh` → `Expected: exit 0`.
+
+**Step 1: Confirm the ACs fail before implementation**
+Run: `grep -qF 'oskr-setup.sh save' skills/init-project/SKILL.md; echo $?`
+Expected: `1` (likewise for the pinned decline line and `Bash(oskr-setup.sh`).
+
+**Step 2: Implement** — three edits to `skills/init-project/SKILL.md`:
+
+**(2a) Frontmatter** — add `Bash(oskr-setup.sh*)` to `allowed-tools` (line 5):
+
+```
+allowed-tools: Bash(git *) Bash(jq *) Bash(mkdir *) Bash(mv *) Bash(cat *) Bash(echo *) Bash(test *) Bash(mktemp *) Bash(source "$CLAUDE_PLUGIN_ROOT/bin/*.sh") Bash(oskr-setup.sh*) Bash(registry.sh*) Bash(adopt-detect.sh*) Bash(adopt-register.sh*) Bash(adopt-harvest.sh*) Bash(adopt-reemit.sh*) Read Write Edit
+```
+
+**(2b) Register-only arm (~line 191)** — in "The 1f decision", the **Register-only** bullet currently ends with "Config (no-clobber) + registry entry; the forge is not touched. Done." Replace "Done." with:
+
+````markdown
+  Then check the new registry entry into the workspace repo and offer a push
+  (skip the save with a note if the workspace is not yet a git repo — point at
+  `oskr-setup`'s Phase 3b):
+
+  ```bash
+  oskr-setup.sh save "$WS" -m "register $NAME"
+  ```
+
+  Ask before pushing — never push without a yes. On yes: `git -C "$WS" push`
+  (if it fails because the remote repo doesn't exist, point at `oskr-setup`'s
+  Publish phase). On decline, surface exactly:
+
+  > workspace has unpushed commits; run `git -C "$WS" push` when ready
+
+  Done.
+````
+
+**(2c) Board-provisioning tail (~line 215)** — immediately after the code block ending in `registry.sh add ...`, insert:
+
+````markdown
+The registry is the rehydration artifact — an uncommitted entry is a project a
+new machine can't reconstruct. Check it in and offer a push (same decline line
+as above):
+
+```bash
+oskr-setup.sh save "$WS" -m "register $NAME"
+```
+````
+
+(The push offer/decline wording is shared with 2b — state it once at 2b and reference it here; the pinned decline line itself must appear at least once in this file, which 2b guarantees.)
+
+**Step 3: Run the grep checks + suite to verify they pass**
+Run:
+```bash
+grep -qF 'oskr-setup.sh save' skills/init-project/SKILL.md \
+ && grep -qF 'workspace has unpushed commits; run `git -C "$WS" push` when ready' skills/init-project/SKILL.md \
+ && grep -qF 'Bash(oskr-setup.sh' skills/init-project/SKILL.md \
+ && bash tests/scripts/test_backend_no_inline_gh.sh \
+ && tests/scripts/run-tests.sh
+```
+Expected: exit 0 — greps hit, seam guard green (skill calls the seam-tested verb, no inline `gh`/`curl`), whole suite green.
+
+**Step 4: Commit** — `git add skills/init-project/SKILL.md && git commit -m "feat(init-project): save registry into the workspace repo after register, offer confirmed push (#113)"`
+
+---
+
 ## Final verification (all ACs, runnable)
 
-- `bash tests/scripts/test_workspace_gitinit.sh` → exit 0
+- `bash tests/scripts/test_workspace_gitinit.sh` → exit 0 (T1–T5 sections)
 - `bash tests/scripts/test_backend_no_inline_gh.sh` → exit 0
 - `tests/scripts/run-tests.sh` → exit 0
 - `bash -n bin/oskr-setup.sh` → exit 0
+- `! grep -qE '(^|[^a-z])git([^a-z].*)?[^a-z]push([^a-z]|$)' bin/oskr-setup.sh` → exit 0
 - `grep -qF 'git-init' skills/oskr-setup/SKILL.md && grep -qF 'rehydrate' skills/oskr-setup/SKILL.md` → exit 0
+- T6 grep battery (Step 3 block above) → exit 0
+- T7 grep battery (Step 3 block above) → exit 0
 
 ## Versioning note
 
