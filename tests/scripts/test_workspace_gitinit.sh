@@ -74,3 +74,37 @@ if "$SETUP" git-init "$WS2" && "$SETUP" git-init "$WS2"; then :; else
   echo "FAIL: git-init not idempotent (non-zero on re-run)" >&2; exit 1
 fi
 echo "test_workspace_gitinit T2 git-init: PASS"
+
+# ============================ T3: rehydrate ==================================
+# --- dry-run: composes the plan, touches no disk (github-shaped entry) ---
+WS3="$TMPROOT/ws-rehydrate-dry"
+"$SETUP" skeleton "$WS3"
+jq -n '{projects: [{name:"widget", path:"projects/widget", forge:"github",
+        github:{owner:"acme", repo:"widget", project_number:0}}]}' \
+  > "$WS3/.oskr/registry.json"
+
+BEFORE=$(ls -A "$WS3/projects")
+DRY=$("$SETUP" rehydrate "$WS3" --dry-run)
+AFTER=$(ls -A "$WS3/projects")
+assert_eq "$BEFORE" "$AFTER" "dry-run leaves projects/ untouched" || exit 1
+if find "$WS3/projects" -maxdepth 3 -name .git | grep -q .; then
+  echo "FAIL: dry-run created a clone" >&2; exit 1
+fi
+grep -qF "https://github.com/acme/widget.git" <<<"$DRY" \
+  || { echo "FAIL: dry-run plan missing composed clone URL" >&2; exit 1; }
+
+# --- full clone from a LOCAL bare fixture (forgejo-shaped entry, no network) ---
+WS3C="$TMPROOT/ws-rehydrate-clone"
+"$SETUP" skeleton "$WS3C"
+BARE="$TMPROOT/forge/acme/widget.git"
+mkdir -p "$(dirname "$BARE")"
+git init --bare -q "$BARE"
+# base_url is the local forge root; owner/repo compose onto it -> the bare path.
+jq -n --arg b "$TMPROOT/forge" \
+  '{projects: [{name:"widget", path:"projects/widget", forge:"forgejo",
+    forgejo:{base_url:$b, owner:"acme", repo:"widget"}}]}' \
+  > "$WS3C/.oskr/registry.json"
+"$SETUP" rehydrate "$WS3C"
+test -d "$WS3C/projects/widget/.git" \
+  || { echo "FAIL: rehydrate did not clone projects/widget/.git" >&2; exit 1; }
+echo "test_workspace_gitinit T3 rehydrate: PASS"

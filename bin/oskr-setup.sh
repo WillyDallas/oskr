@@ -134,11 +134,61 @@ oskr_setup_git_init() {
     commit -q -m "chore(workspace): oskr workspace baseline" 2>/dev/null || true
 }
 
+# rehydrate <workspace_dir> [--dry-run] — reconstruct the managed-project tree by
+# cloning each .oskr/registry.json entry into projects/<name>, using coords from
+# THAT entry (projects may live on different forges). --dry-run prints the plan and
+# touches no disk. Existing projects/<name>/.git are skipped (idempotent; never
+# re-clones or overwrites). Clone URLs:
+#   github  entry: https://github.com/<owner>/<repo>.git
+#   forgejo entry: <base_url without trailing />/<owner>/<repo>.git
+oskr_setup_rehydrate() {
+  local ws="${1:-$PWD}"; [[ "$#" -gt 0 ]] && shift
+  local dry_run=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dry-run) dry_run=1; shift ;;
+      *) _setup_die "rehydrate: unknown flag '$1'" ;;
+    esac
+  done
+  local reg="$ws/.oskr/registry.json"
+  [[ -f "$reg" ]] || _setup_die "rehydrate: no registry at $reg — run 'skeleton' first"
+
+  local n i=0 name forge owner repo base url dest
+  n="$(jq '.projects | length' "$reg")"
+  while [[ "$i" -lt "$n" ]]; do
+    name="$(jq -r ".projects[$i].name" "$reg")"
+    forge="$(jq -r ".projects[$i].forge // \"github\"" "$reg")"
+    dest="$ws/projects/$name"
+    case "$forge" in
+      github)
+        owner="$(jq -r ".projects[$i].github.owner" "$reg")"
+        repo="$(jq -r ".projects[$i].github.repo" "$reg")"
+        url="https://github.com/${owner}/${repo}.git" ;;
+      forgejo)
+        base="$(jq -r ".projects[$i].forgejo.base_url" "$reg")"
+        owner="$(jq -r ".projects[$i].forgejo.owner" "$reg")"
+        repo="$(jq -r ".projects[$i].forgejo.repo" "$reg")"
+        url="${base%/}/${owner}/${repo}.git" ;;
+      *) _setup_die "rehydrate: entry '$name' has unknown forge '$forge'" ;;
+    esac
+
+    if [[ "$dry_run" -eq 1 ]]; then
+      printf 'rehydrate: would clone %s -> projects/%s\n' "$url" "$name"
+    elif [[ -d "$dest/.git" ]]; then
+      printf 'rehydrate: projects/%s already present; skipping\n' "$name"
+    else
+      git clone -q "$url" "$dest"
+    fi
+    i=$((i + 1))
+  done
+}
+
 cmd="${1:-}"; [[ "$#" -gt 0 ]] && shift
 case "$cmd" in
   skeleton)     oskr_setup_skeleton "$@" ;;
   write-config) oskr_setup_write_config "$@" ;;
   bootstrap)    oskr_setup_bootstrap "$@" ;;
   git-init)     oskr_setup_git_init "$@" ;;
-  *)            _setup_die "usage: oskr-setup.sh {skeleton|write-config|bootstrap|git-init} [workspace_dir]" ;;
+  rehydrate)    oskr_setup_rehydrate "$@" ;;
+  *)            _setup_die "usage: oskr-setup.sh {skeleton|write-config|bootstrap|git-init|rehydrate} [workspace_dir] [--dry-run]" ;;
 esac
