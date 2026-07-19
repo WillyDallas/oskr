@@ -108,3 +108,21 @@ jq -n --arg b "$TMPROOT/forge" \
 test -d "$WS3C/projects/widget/.git" \
   || { echo "FAIL: rehydrate did not clone projects/widget/.git" >&2; exit 1; }
 echo "test_workspace_gitinit T3 rehydrate: PASS"
+
+# ============================ T4: ls-files hygiene ===========================
+# Drop real secret/ephemeral files BEFORE git-init so the commit would capture
+# them if the ignore contract failed — this makes the hygiene assertion a guard.
+WS4="$TMPROOT/ws-hygiene"
+"$SETUP" skeleton "$WS4"; OSKR_FORGE=github "$SETUP" write-config "$WS4"
+echo "SECRET=1" > "$WS4/.env"
+mkdir -p "$WS4/secrets"; echo tok > "$WS4/secrets/token"
+mkdir -p "$WS4/projects/foo"; echo x > "$WS4/projects/foo/README"
+"$SETUP" git-init "$WS4"
+
+if git -C "$WS4" ls-files | grep -qE '(^|/)\.env$|^projects/'; then
+  echo "FAIL: secret or projects/ path tracked" >&2
+  git -C "$WS4" ls-files | grep -E '(^|/)\.env$|^projects/' >&2; exit 1
+fi
+git -C "$WS4" ls-files | grep -q '^.oskr/config.json$' \
+  || { echo "FAIL: .oskr/config.json not tracked" >&2; exit 1; }
+echo "test_workspace_gitinit T4 hygiene: PASS"

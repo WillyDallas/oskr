@@ -62,6 +62,31 @@ Confirm the result: `.oskr/config.json` populated, `.oskr/registry.json` is
 `{"projects": []}`, `projects/ learning/` exist, and `hjarne/` is stamped
 (`hjarne/schema.md` present — the verb runs `bin/hjarne-skeleton.sh`).
 
+## Phase 3b: Put the workspace under version control
+
+The workspace is a git repo — its config, registry, and brain are tracked so the
+control plane is reproducible; secrets and cloned `projects/` are not. Run the
+seam-tested verb (idempotent; safe to re-run):
+
+```bash
+oskr-setup.sh git-init "$WS"
+```
+
+This runs `git init`, writes the `.gitignore` contract (ignores `.env`/`*.key`/
+`*.pem`/`secrets/`/`projects/`; tracks `.oskr/config.json`, `.oskr/registry.json`,
+`hjarne/**`, `learning/**`), sets the `origin` remote, and lands an initial commit
+with an injected identity. It **never pushes** — create the remote repo and
+`git push -u origin` yourself, or leave it local.
+
+Remote URL: set `OSKR_WORKSPACE_REMOTE` for a full URL, else it composes
+`OSKR_WORKSPACE_SLUG` (default `squirrlylabs/workspace`) onto the configured forge.
+
+**Reconstructing on a new machine:** clone the workspace repo, then run
+`oskr-setup.sh rehydrate "$WS"` to re-clone every managed project from
+`.oskr/registry.json` into `projects/` (add `--dry-run` to preview, cloning
+nothing). rehydrate is the counterpart to git-init: git-init publishes the
+control plane, rehydrate rebuilds the working tree from it.
+
 ## Phase 4: Brain / teach — delegate only if present, never block
 
 These belong to later Areas (brain #28, teach #30) and may not exist yet.
