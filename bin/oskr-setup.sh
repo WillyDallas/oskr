@@ -85,14 +85,53 @@ projects/
 GITIGNORE
 }
 
-# git-init <workspace_dir> — make the workspace a git repo (idempotent) and write
-# the .gitignore contract. (T2 extends this with the origin remote + an initial
-# identity-injected commit.)
+# _oskr_setup_workspace_remote <workspace_dir> — echo the composed origin URL per
+# precedence. Pure string composition; no network. NOTE: the workspace repo slug
+# (OSKR_WORKSPACE_SLUG) is DISTINCT from config.github.owner (the default owner
+# for NEW PROJECTS, not the workspace repo).
+_oskr_setup_workspace_remote() {
+  local ws="$1" cfg forge base slug
+  # 1. Full-URL escape hatch — used verbatim, before any config read.
+  if [[ -n "${OSKR_WORKSPACE_REMOTE:-}" ]]; then
+    printf '%s' "$OSKR_WORKSPACE_REMOTE"; return 0
+  fi
+  slug="${OSKR_WORKSPACE_SLUG:-squirrlylabs/workspace}"
+  cfg="$ws/.oskr/config.json"
+  forge="github"
+  [[ -f "$cfg" ]] && forge="$(jq -r '.forge // "github"' "$cfg")"
+  case "$forge" in
+    forgejo)
+      base="$(jq -r '.forgejo.base_url // ""' "$cfg")"
+      [[ -n "$base" ]] || _setup_die "git-init: forge=forgejo but .forgejo.base_url is empty in $cfg"
+      printf '%s/%s.git' "${base%/}" "$slug" ;;
+    *)
+      printf 'https://github.com/%s.git' "$slug" ;;
+  esac
+}
+
+# git-init <workspace_dir> — make the workspace a git repo (idempotent), write the
+# .gitignore contract, configure the `origin` workspace remote, and land an initial
+# commit with an INJECTED identity so it works on a bare machine with no ambient
+# user.email/user.name. NEVER pushes — that is a manual/smoke step.
 oskr_setup_git_init() {
-  local ws="${1:-$PWD}"
+  local ws="${1:-$PWD}" remote
   [[ -d "$ws/.oskr" ]] || _setup_die "no .oskr/ at $ws — run 'skeleton' first"
+
   git -C "$ws" init -q
   _oskr_setup_gitignore_body > "$ws/.gitignore"
+
+  remote="$(_oskr_setup_workspace_remote "$ws")"
+  if git -C "$ws" remote get-url origin >/dev/null 2>&1; then
+    git -C "$ws" remote set-url origin "$remote"
+  else
+    git -C "$ws" remote add origin "$remote"
+  fi
+
+  git -C "$ws" add -A
+  git -C "$ws" \
+    -c user.email="${OSKR_GIT_EMAIL:-oskr@squirrlylabs.local}" \
+    -c user.name="${OSKR_GIT_NAME:-oskr}" \
+    commit -q -m "chore(workspace): oskr workspace baseline" 2>/dev/null || true
 }
 
 cmd="${1:-}"; [[ "$#" -gt 0 ]] && shift
