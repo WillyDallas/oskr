@@ -2,7 +2,7 @@
 name: init-project
 description: Onboard a project into the oskr workspace — create a new repo, import an existing local folder (a move), or clone one from the forge (GitHub/Forgejo). One interview gathers every input (location → backend → secrets → shape → adopt choice), then execution provisions repo, 8-column board, config, and registry through the blacksmith. Reach for it when the developer wants oskr to onboard, import, adopt, or manage a project. Run from anywhere inside the workspace.
 argument-hint: "(no arguments — interactive)"
-allowed-tools: Bash(git *) Bash(jq *) Bash(mkdir *) Bash(mv *) Bash(cat *) Bash(echo *) Bash(test *) Bash(mktemp *) Bash(source "$CLAUDE_PLUGIN_ROOT/bin/*.sh") Bash(registry.sh*) Bash(adopt-detect.sh*) Bash(adopt-register.sh*) Bash(adopt-harvest.sh*) Bash(adopt-reemit.sh*) Read Write Edit
+allowed-tools: Bash(git *) Bash(jq *) Bash(mkdir *) Bash(mv *) Bash(cat *) Bash(echo *) Bash(test *) Bash(mktemp *) Bash(source "$CLAUDE_PLUGIN_ROOT/bin/*.sh") Bash(oskr-setup.sh*) Bash(registry.sh*) Bash(adopt-detect.sh*) Bash(adopt-register.sh*) Bash(adopt-harvest.sh*) Bash(adopt-reemit.sh*) Read Write Edit
 ---
 
 You are walking the developer through onboarding ONE project into the oskr workspace.
@@ -191,7 +191,23 @@ A cloned repo that already carries `harness-config.json` is already oskr-shaped:
   adopt-register.sh --name "$NAME" --forge "$FORGE" --owner "$OWNER" --repo "$REPO" \
     --path "$PWD" [--project-number N] [--base-url URL]
   ```
-  Config (no-clobber) + registry entry; the forge is not touched. Done.
+  Config (no-clobber) + registry entry; the forge is not touched.
+
+  Then check the new registry entry into the workspace repo and offer a push
+  (skip the save with a note if the workspace is not yet a git repo — point at
+  `oskr-setup`'s Phase 3b):
+
+  ```bash
+  oskr-setup.sh save "$WS" -m "register $NAME"
+  ```
+
+  Ask before pushing — never push without a yes. On yes: `git -C "$WS" push`
+  (if it fails because the remote repo doesn't exist, point at `oskr-setup`'s
+  Publish phase). On decline, surface exactly:
+
+  > workspace has unpushed commits; run `git -C "$WS" push` when ready
+
+  Done.
 - **Empty (fresh board, no migration)**: `cat "$INTERVIEW_CFG" > harness-config.json`,
   re-point `HARNESS_CONFIG` at it, then the board-provisioning tail.
 - **Full migration — strictly this order** (the board exists *before* anything re-emits
@@ -214,6 +230,14 @@ init_config_set_project_number harness-config.json "$NUMBER"          # github a
 # STATUS_FIELD != "Status" → record it: workflow.status_field_name in harness-config.json
 registry.sh add --name "$NAME" --path "$PWD" --forge "$FORGE" --owner "$OWNER" --repo "$REPO" \
   [--project-number "$NUMBER"] [--base-url "$BASE_URL"]
+```
+
+The registry is the rehydration artifact — an uncommitted entry is a project a
+new machine can't reconstruct. Check it in and offer a push (same decline line
+as above):
+
+```bash
+oskr-setup.sh save "$WS" -m "register $NAME"
 ```
 
 (Forgejo's `provision_board` echoes nothing today — treat empty output as

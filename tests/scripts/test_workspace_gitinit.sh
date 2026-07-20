@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+# Hermetic seam test for the disk-touching workspace verbs: git-init + rehydrate.
+# Every verb runs inside a fresh mktemp -d workspace; assertions are on real
+# on-disk state (git ls-files, git check-ignore, projects/<name>/.git). No forge
+# and no network: git-init sets a remote but never pushes; rehydrate's full-clone
+# path targets a LOCAL `git init --bare` fixture inside the tmpdir.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/lib/assert.sh"
+SETUP="$REPO_ROOT/bin/oskr-setup.sh"
+
+TMPROOT=$(mktemp -d); trap 'rm -rf "$TMPROOT"' EXIT
+
+# Clear ambient git identity + config so the INJECTED identity is what makes the
+# commit succeed (proves git-init works on a bare machine). GIT_CONFIG_GLOBAL/
+# SYSTEM=/dev/null removes any user.name/email; the identity env vars are unset.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL 2>/dev/null || true
+
+# ============================ T1: .gitignore contract ========================
+WS1="$TMPROOT/ws-gitignore"
+"$SETUP" skeleton "$WS1"
+"$SETUP" git-init "$WS1"
+test -f "$WS1/.gitignore" || { echo "FAIL: git-init wrote no .gitignore" >&2; exit 1; }
+
+# Ignored set — every path git check-ignore must classify as ignored (exit 0).
+for p in projects/foo/bar .env secrets/x .DS_Store foo.env x.key y.pem; do
+  git -C "$WS1" check-ignore -q "$p" \
+    || { echo "FAIL: expected '$p' to be gitignored" >&2; exit 1; }
+done
+# Tracked set — paths that must NOT be ignored (check-ignore exits non-zero).
+for p in .oskr/config.json hjarne/schema.md; do
+  if git -C "$WS1" check-ignore -q "$p"; then
+    echo "FAIL: '$p' must be tracked, not ignored" >&2; exit 1
+  fi
+done
+echo "test_workspace_gitinit T1 gitignore: PASS"
+
+# ============================ T2: git-init remote + commit ===================
+# github default remote
+WS2="$TMPROOT/ws-remote-gh"
+"$SETUP" skeleton "$WS2"
+OSKR_FORGE=github "$SETUP" write-config "$WS2"
+"$SETUP" git-init "$WS2"
+assert_eq "https://github.com/squirrlylabs/workspace.git" \
+  "$(git -C "$WS2" remote get-url origin)" "github default remote" || exit 1
+
+# forgejo default remote
+WS2F="$TMPROOT/ws-remote-forgejo"
+"$SETUP" skeleton "$WS2F"
+OSKR_FORGE=forgejo OSKR_FORGEJO_BASE_URL=https://forge.squirrlylabs.com \
+  "$SETUP" write-config "$WS2F"
+"$SETUP" git-init "$WS2F"
+assert_eq "https://forge.squirrlylabs.com/squirrlylabs/workspace.git" \
+  "$(git -C "$WS2F" remote get-url origin)" "forgejo default remote" || exit 1
+
+# full-URL override wins over composition
+WS2O="$TMPROOT/ws-remote-override"
+"$SETUP" skeleton "$WS2O"; OSKR_FORGE=github "$SETUP" write-config "$WS2O"
+OSKR_WORKSPACE_REMOTE=https://example.test/x/y.git "$SETUP" git-init "$WS2O"
+assert_eq "https://example.test/x/y.git" \
+  "$(git -C "$WS2O" remote get-url origin)" "full-URL override" || exit 1
+
+# initial commit landed with the INJECTED identity (ambient identity is cleared)
+test -n "$(git -C "$WS2" rev-parse HEAD 2>/dev/null)" \
+  || { echo "FAIL: git-init produced no initial commit" >&2; exit 1; }
+assert_eq "oskr <oskr@squirrlylabs.local>" \
+  "$(git -C "$WS2" log -1 --format='%an <%ae>')" "injected commit identity" || exit 1
+
+# idempotency: two chained git-init runs both succeed, nothing-to-commit tolerated
+if "$SETUP" git-init "$WS2" && "$SETUP" git-init "$WS2"; then :; else
+  echo "FAIL: git-init not idempotent (non-zero on re-run)" >&2; exit 1
+fi
+echo "test_workspace_gitinit T2 git-init: PASS"
+
+# ============================ T3: rehydrate ==================================
+# --- dry-run: composes the plan, touches no disk (github-shaped entry) ---
+WS3="$TMPROOT/ws-rehydrate-dry"
+"$SETUP" skeleton "$WS3"
+jq -n '{projects: [{name:"widget", path:"projects/widget", forge:"github",
+        github:{owner:"acme", repo:"widget", project_number:0}}]}' \
+  > "$WS3/.oskr/registry.json"
+
+BEFORE=$(ls -A "$WS3/projects")
+DRY=$("$SETUP" rehydrate "$WS3" --dry-run)
+AFTER=$(ls -A "$WS3/projects")
+assert_eq "$BEFORE" "$AFTER" "dry-run leaves projects/ untouched" || exit 1
+if find "$WS3/projects" -maxdepth 3 -name .git | grep -q .; then
+  echo "FAIL: dry-run created a clone" >&2; exit 1
+fi
+grep -qF "https://github.com/acme/widget.git" <<<"$DRY" \
+  || { echo "FAIL: dry-run plan missing composed clone URL" >&2; exit 1; }
+
+# --- full clone from a LOCAL bare fixture (forgejo-shaped entry, no network) ---
+WS3C="$TMPROOT/ws-rehydrate-clone"
+"$SETUP" skeleton "$WS3C"
+BARE="$TMPROOT/forge/acme/widget.git"
+mkdir -p "$(dirname "$BARE")"
+git init --bare -q "$BARE"
+# base_url is the local forge root; owner/repo compose onto it -> the bare path.
+jq -n --arg b "$TMPROOT/forge" \
+  '{projects: [{name:"widget", path:"projects/widget", forge:"forgejo",
+    forgejo:{base_url:$b, owner:"acme", repo:"widget"}}]}' \
+  > "$WS3C/.oskr/registry.json"
+"$SETUP" rehydrate "$WS3C"
+test -d "$WS3C/projects/widget/.git" \
+  || { echo "FAIL: rehydrate did not clone projects/widget/.git" >&2; exit 1; }
+echo "test_workspace_gitinit T3 rehydrate: PASS"
+
+# ============================ T4: ls-files hygiene ===========================
+# Drop real secret/ephemeral files BEFORE git-init so the commit would capture
+# them if the ignore contract failed — this makes the hygiene assertion a guard.
+WS4="$TMPROOT/ws-hygiene"
+"$SETUP" skeleton "$WS4"; OSKR_FORGE=github "$SETUP" write-config "$WS4"
+echo "SECRET=1" > "$WS4/.env"
+mkdir -p "$WS4/secrets"; echo tok > "$WS4/secrets/token"
+mkdir -p "$WS4/projects/foo"; echo x > "$WS4/projects/foo/README"
+"$SETUP" git-init "$WS4"
+
+if git -C "$WS4" ls-files | grep -qE '(^|/)\.env$|^projects/'; then
+  echo "FAIL: secret or projects/ path tracked" >&2
+  git -C "$WS4" ls-files | grep -E '(^|/)\.env$|^projects/' >&2; exit 1
+fi
+git -C "$WS4" ls-files | grep -q '^.oskr/config.json$' \
+  || { echo "FAIL: .oskr/config.json not tracked" >&2; exit 1; }
+echo "test_workspace_gitinit T4 hygiene: PASS"
+
+# ============================ T5: save =======================================
+WS5="$TMPROOT/ws-save"
+"$SETUP" skeleton "$WS5"; OSKR_FORGE=github "$SETUP" write-config "$WS5"
+"$SETUP" git-init "$WS5"
+
+# (a) no-op idempotency: clean tree -> exit 0 twice, HEAD unchanged on re-run
+"$SETUP" save "$WS5" || { echo "FAIL: save on clean tree exited non-zero" >&2; exit 1; }
+HEAD_BEFORE=$(git -C "$WS5" rev-parse HEAD)
+"$SETUP" save "$WS5" || { echo "FAIL: second no-op save exited non-zero" >&2; exit 1; }
+assert_eq "$HEAD_BEFORE" "$(git -C "$WS5" rev-parse HEAD)" \
+  "no-op save leaves HEAD unchanged" || exit 1
+
+# (b) registry check-in: append an entry, save, the commit carries it, tree clean
+jq '.projects += [{name:"widget", path:"projects/widget", forge:"github",
+    github:{owner:"acme", repo:"widget", project_number:0}}]' \
+  "$WS5/.oskr/registry.json" > "$WS5/.oskr/registry.json.tmp" \
+  && mv "$WS5/.oskr/registry.json.tmp" "$WS5/.oskr/registry.json"
+"$SETUP" save "$WS5" -m "register widget"
+git -C "$WS5" show HEAD:.oskr/registry.json | grep -qF widget \
+  || { echo "FAIL: saved commit does not carry the registry entry" >&2; exit 1; }
+test -z "$(git -C "$WS5" status --porcelain)" \
+  || { echo "FAIL: working tree not clean after save" >&2; exit 1; }
+
+# (c) identity: the save commit used the injected identity (ambient cleared at top)
+assert_eq "oskr <oskr@squirrlylabs.local>" \
+  "$(git -C "$WS5" log -1 --format='%an <%ae>')" "save commit identity" || exit 1
+
+# (d) guard: save on a non-repo workspace dies pointing at git-init
+WS5N="$TMPROOT/ws-save-norepo"
+"$SETUP" skeleton "$WS5N"
+if OUT=$("$SETUP" save "$WS5N" 2>&1); then
+  echo "FAIL: save on a non-repo workspace succeeded" >&2; exit 1
+fi
+grep -qF "run git-init first" <<<"$OUT" \
+  || { echo "FAIL: guard message missing 'run git-init first'" >&2; exit 1; }
+
+# (e) push-free: no line in the verb file pairs whole-word git with whole-word push
+if grep -qE '(^|[^a-z])git([^a-z].*)?[^a-z]push([^a-z]|$)' "$REPO_ROOT/bin/oskr-setup.sh"; then
+  echo "FAIL: a line in bin/oskr-setup.sh pairs 'git' with 'push'" >&2; exit 1
+fi
+echo "test_workspace_gitinit T5 save: PASS"
