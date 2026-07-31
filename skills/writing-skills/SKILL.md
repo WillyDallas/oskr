@@ -55,6 +55,12 @@ A leading word is a compact concept already living in the model's pretraining (*
 - **Relevance** — does the line still bear on what the skill does? Cut stale lines.
 - **No-op test** — run it per sentence, in isolation: does the line change behaviour versus the model's default? If not, delete the whole sentence (don't trim words). A leading word too weak to beat the default (*be thorough*) is a no-op; fix it with a stronger word (*relentless*), not a different technique. This skill obeys its own test — do not let it re-bloat.
 
+## 6. Interfaces and judgment (applies to agents too)
+
+- **Interfaces over examples** — an example set narrower than the contract biases the agent toward the examples' shape (three grep examples beget grep-shaped ACs). Prefer an expressive form that carries the contract itself (an enum, a `Run:`/`Expected:` tuple); keep an example only when it is a contrastive pair marking an axis boundary ("Update auth logic" fails; the exact-path version passes).
+- **Judgment over rules** — the model resolves intent from surrounding context; a hard rule ("never X") earns its place only when a real incident justifies it. Where a constraint must hold, put it in the interface — the tool list, the allowed-tools line — not prose restating it.
+- **Verdicts over scores** — evaluator rubrics grade each axis PASS/FAIL with cited evidence. Summed numeric scores are invented precision: the model makes up the partials, then a threshold launders them into a gate.
+
 ## Failure modes (diagnose against)
 
-**Premature completion** (rushing a step — sharpen the criterion first; hide later steps only if the bound is irreducibly fuzzy) · **Duplication** (the same meaning in two places) · **Sediment** (stale layers never cleared) · **Sprawl** (too long even when every line is live — cure with the hierarchy) · **No-op** (a line the model already obeys by default).
+**Premature completion** (rushing a step — sharpen the criterion first; hide later steps only if the bound is irreducibly fuzzy) · **Duplication** (the same meaning in two places) · **Conflict** (two live lines pulling opposite directions — resolve to one before the agent has to) · **Sediment** (stale layers never cleared) · **Sprawl** (too long even when every line is live — cure with the hierarchy) · **No-op** (a line the model already obeys by default).

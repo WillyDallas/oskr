@@ -13,9 +13,9 @@ Assemble one grounded, cited digest so the grill that follows starts informed in
 
 1. **Resolve the subject.** If `$ARGUMENTS` is an issue number, read it (`source bin/harness-lib.sh && blacksmith_issue_view <n>`). If a `## Research Digest` comment is already present and the working tree has not moved since it was written, **reuse it — stop here** (do not re-dig). Otherwise continue.
 
-2. **Sync the tree before spawning agents.** Researchers read the local tree; a stale base yields confident-wrong findings. `sync-development.sh research` — on a non-zero exit, surface the message and stop rather than research a stale base.
+2. **Sync the tree before spawning agents.** Researchers are shell-free and trust the tree in front of them; a stale base yields confident-wrong findings. `sync-development.sh research` — on a non-zero exit, surface the message and stop rather than research a stale base.
 
-3. **Dispatch the loop.** Spawn the **researcher** agent (working tree + web), then the **research-reviewer** agent to check it. Iterate until the reviewer is satisfied or returns concrete gaps.
+3. **Dispatch the loop.** Spawn the **researcher** agent (working tree + web), then the **research-reviewer** agent to check it. Iterate until the reviewer is satisfied — **max 2 review rounds per phase**; after that, accept the current draft and carry the reviewer's unresolved flags into the digest for the developer.
 
 4. **Assemble ONE digest** — recommendation · key files & candidate **seams** (`file:path`) · risks · open questions · citations (URLs + `file:line`). One digest, not a transcript.
 

@@ -2,7 +2,7 @@
 name: land-area
 description: Land a finished Area to main — once every child PR has merged into the Area branch, roll the umbrella to In Review and open the Area→main PR that `Closes` every child + the umbrella. Reach for it when an Area's child PRs are all merged.
 argument-hint: "[umbrella-issue-number]"
-allowed-tools: Bash(source bin/harness-lib.sh*) Bash(git *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(list-children.sh*) Bash(base-branch.sh*) Read Grep
+allowed-tools: Bash(source bin/harness-lib.sh*) Bash(git *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(list-children.sh*) Bash(base-branch.sh*) Read Grep AskUserQuestion
 ---
 
 Land a finished Area. When every child PR has merged into the Area branch, this rolls the umbrella to **In Review** and opens the one consolidated **Area → main** PR whose `Closes` directives retire every child **and** the umbrella on merge. The human reviews that single diff and merges it (GATE 3) — the merge closes everything → Done, and `/clean-up` takes it from there. **Idempotent** — safe to re-run.
@@ -46,6 +46,8 @@ Land a finished Area. When every child PR has merged into the Area branch, this 
 
 5. **Roll the umbrella to In Review:** `move-issue.sh "$(find-item.sh <umbrella>)" "In Review"`.
 
-6. **Report the PR URL** and stop. The human reviews the consolidated Area diff and merges it (GATE 3); that merge closes every issue → Done. Tell them to run `/clean-up` afterward to reconcile docs and archive the cards.
+6. **Report the PR URL.** The human reviews the consolidated Area diff and merges it (GATE 3); that merge closes every issue → Done. Tell them to run `/clean-up` afterward to reconcile docs and archive the cards.
 
-**Done when:** every child PR is merged into the Area branch, the Area branch carries the single manifest version bump, exactly one open `Area→main` PR exists whose body `Closes` every child **and** the umbrella, and the umbrella is in **In Review** — OR the run STOPPED with a clear list of children not yet landed.
+7. **Offer a comprehension quiz** — optional, never assumed. Ask via `AskUserQuestion`: "Want a quick comprehension quiz on what this Area changed?" On yes, quiz them in-conversation, grounded in the Area diff (`git diff $MAIN...$AREA`) and the umbrella PRD — a handful of questions on what shipped, what changed shape, and what to watch; give immediate feedback per answer. On no, stop without comment.
+
+**Done when:** every child PR is merged into the Area branch, the Area branch carries the single manifest version bump, exactly one open `Area→main` PR exists whose body `Closes` every child **and** the umbrella, the umbrella is in **In Review**, and the quiz was offered — OR the run STOPPED with a clear list of children not yet landed.

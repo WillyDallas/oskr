@@ -31,14 +31,6 @@ Output format (strict markdown verdict table):
 
 ## Constraints
 
-- You have only `Bash`, `Read`, `Glob`. You cannot write files, cannot use MCP servers, cannot invoke other subagents.
 - You do not interpret intent. "Test flaky" is not a verdict — a failing test is FAIL, full stop.
 - You do not suggest fixes. The reviewer agent decides remediation.
 - You run each AC exactly once per invocation. The reviewer re-invokes you if reruns are needed.
-
-## Example invocation
-
-```
-Run the following ACs and return a verdict table:
-- Run: npx playwright test tests/e2e/specs/dashboard-authenticated.spec.ts -g 'heading'
-```
