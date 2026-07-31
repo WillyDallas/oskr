@@ -123,7 +123,7 @@ Agent(
 
 ### Step 4: Review the plan (single reviewer; escalate the panel only on risk)
 
-The execution-round review is **one** `plan-reviewer` owning the entire weighted rubric. The 3-lens panel + synthesizer is **expensive** — on the Area #27 baseline it was 60% of all planning tokens — so it is spent only when the single reviewer flags risk, not on every plan. The key is that even the lone default reviewer must *run or grep each AC command against the tree* for the 30%-weighted "mechanically verifiable AC" axis (not eyeball it); that execution is the quality the panel used to buy, and it carries over to the cheap path.
+The execution-round review is **one** `plan-reviewer` owning the entire rubric. The 3-lens panel + synthesizer is **expensive** — on the Area #27 baseline it was 60% of all planning tokens — so it is spent only when the single reviewer flags risk, not on every plan. The key is that even the lone default reviewer must *run or grep each AC command against the tree* for the "mechanically verifiable AC" axis (not eyeball it); that execution is the quality the panel used to buy, and it carries over to the cheap path.
 
 **4a — Single reviewer (default path).** Spawn one `plan-reviewer` for the full rubric:
 
@@ -137,50 +137,13 @@ Agent(
 
            Plan file: docs/plans/YYYY-MM-DD-<feature>.md
 
-           Score every weighted axis (they total 100). For the mechanically-verifiable-criteria axis, actually run/grep each AC command against the real tree and confirm it yields the claimed output shape — a UI plan with no `npx playwright test` AC scores 0/30. Emit the canonical Plan Review output per your agent definition's Execution Round Review format."
+           Grade every rubric axis PASS or FAIL with evidence. For the mechanically-verifiable-criteria axis, actually run/grep each AC command against the real tree and confirm it yields the claimed output shape — a UI plan with no `npx playwright test` AC fails that axis outright. Emit the canonical Plan Review output per your agent definition's Execution Round Review format."
 )
 ```
 
 If Overall is **PASS**, go to Step 5. **Only if Overall is NEEDS_IMPROVEMENT or FAIL** does the plan warrant the panel — escalate via 4b before looping back to the planner.
 
-**4b — Escalate to the rubric panel (risk only, at most once).** The single reviewer flagged the plan; a thorough multi-lens sweep now lets the planner fix everything in one loop instead of ping-ponging. Re-review the *same* draft by fanning the rubric across three parallel lenses + a synthesizer. Emit all three lens calls as `Agent` calls in one message. Each owns a disjoint slice of the rubric (the slices sum to 100, so scores are additive) and carries a `lens=<LENS>` marker:
-
-| lens | rubric axes it owns (weight) | what it must DO |
-|---|---|---|
-| `verify` | Mechanically verifiable criteria (30) + Playwright gate | Run or grep every AC's command against the real tree; confirm it exists and yields the claimed output shape. A UI plan with no `npx playwright test` AC scores 0/30. |
-| `structure` | File-path exactness (20) + TDD structure (15) + task bite-size (15) = 50 | Verify every named file path exists (or is a sensible new path) via Glob/Read; check each task has the 5-step TDD pattern and is 2–5 min of work. |
-| `completeness` | Dependency declaration (10) + complete code (10) = 20 | Confirm cross-task dependencies are explicit and the plan body carries real code snippets, not descriptions. |
-
-```
-Agent(
-  subagent_type: "plan-reviewer",
-  prompt: "HARNESS_TOKEN_MARKER role=plan-reviewer iteration=<ITER> issue=<NUMBER> kind=execution lens=<LENS>
-           Execution round for issue #<NUMBER> — <LENS> lens only.
-           Frozen DoD:
-           [paste accepted DoD]
-
-           Plan file: docs/plans/YYYY-MM-DD-<feature>.md
-
-           Evaluate ONLY your lens's rubric axes (see the panel table in the planning-session skill). Score each axis you own; for the `verify` lens, actually run/grep the AC commands. Return your axis scores + issues with file:line evidence — do NOT emit the overall verdict; the synthesizer owns that."
-)
-```
-
-Then spawn a single `plan-reviewer` to merge the lens scores into the canonical Plan Review output:
-
-```
-Agent(
-  subagent_type: "plan-reviewer",
-  prompt: "HARNESS_TOKEN_MARKER role=plan-reviewer iteration=<ITER> issue=<NUMBER> kind=execution lens=synthesis
-           Execution round for issue #<NUMBER> — synthesis.
-           Frozen DoD:
-           [paste accepted DoD]
-
-           Lens reviews (labeled by lens):
-           [paste each lens's axis scores + issues]
-
-           Merge into the single Plan Review output. Sum the weighted axes (they total 100). Set Overall = FAIL if any lens FAILed, else NEEDS_IMPROVEMENT if Total < 85, else PASS. Preserve every lens's issues in the Issues Found section."
-)
-```
+**4b — Escalate to the rubric panel (risk only, at most once).** The single reviewer flagged the plan. Read [`PANEL.md`](./PANEL.md) in this skill's directory and follow it exactly — it fans the rubric across three parallel lenses + a synthesizer and returns one merged verdict.
 
 **Looping.** Take the feedback (the single reviewer's, or the synthesized panel verdict if 4b ran) and loop back to Step 3. Re-reviews on iterations 2–3 are **always a single `plan-reviewer`** that re-checks whether the named deficiencies were fixed and re-runs any AC command it touches — the panel escalates **at most once**, on the first risk flag. Max 3 iterations. After iteration 3, stop and surface the unresolved issues to the developer.
 

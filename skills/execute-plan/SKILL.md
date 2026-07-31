@@ -46,14 +46,7 @@ This skill frequently runs inside a headless (`claude -p`) dispatch session, whe
    ```
    *(Note: `sync-development.sh` / `sync-worktree.sh` were built for a single configured base; driving them against an arbitrary Area branch is a known refinement. The `@{u}` guard keeps a local-only Area branch from aborting the run.)*
 
-   **Resume mode** — if a branch matching `feature/<NUMBER>-*` already exists (typically because the issue carries the `dispatch-incomplete` label from a prior dispatch that died mid-run), do NOT create a new branch or restart from task 1:
-
-   ```bash
-   git checkout feature/<NUMBER>-<existing-slug>
-   git log --oneline "$BASE_BRANCH"..HEAD   # what already landed
-   ```
-
-   Read the issue's `## Dispatch Incomplete` comment (if present) for where the prior run stopped, map the existing commits against the plan's task list, and continue from the first task without a corresponding commit. Re-run the project's type-check command (per CLAUDE.md) before resuming to confirm the inherited state is sound. If the branch exists but has zero commits, treat it as a fresh start on that branch.
+   **Resume mode** — if a branch matching `feature/<NUMBER>-*` already exists, this is a resume of a dead dispatch: read [`RESUME.md`](./RESUME.md) in this skill's directory and follow it exactly instead of creating a branch.
 
    **Sync the worktree** — in both modes (fresh and resume), once the feature branch is checked out and before any implementation work, bring it up to date with the base:
 
@@ -61,7 +54,7 @@ This skill frequently runs inside a headless (`claude -p`) dispatch session, whe
    sync-worktree.sh execute-plan
    ```
 
-   Exit 0 (`in-sync` or `merged`) — proceed. Exit 1 — stop and surface the status token to the developer; a `conflict` means the base moved in a way that needs human merging (the script aborts the merge and leaves the branch unchanged). Fresh branches normally report `in-sync`; the step matters for resume mode, where the branch's base predates the dead dispatch. See the `sync-worktree` skill for the full token table.
+   Exit 0 (`in-sync` or `merged`) — proceed. Exit 1 — stop and relay the script's stderr note to the developer; it names the fix (a `conflict` means the base moved in a way that needs human merging — the script aborts the merge and leaves the branch unchanged). Fresh branches normally report `in-sync`; the step matters for resume mode, where the branch's base predates the dead dispatch.
 
 4. **Move the issue to In Progress**:
    ```bash
@@ -140,7 +133,7 @@ Continuation messages carry NO HARNESS_TOKEN_MARKER — the spawn marker attribu
 
 ### Step 3: Handle Review Result
 
-- **All PASS**: Move to the next task. The reviewer session stays alive for the next task's review request.
+- **All PASS**: Move to the next task. The reviewer session stays alive for the next task's review request. Collect any `## Deviations` entries from the implementer's completion narrative — they aggregate into the PR body.
 - **NEEDS_IMPROVEMENT or FAIL**: Pass the reviewer's feedback to a fresh implementer subagent (attempt <A+1>). After the fix, send the re-review to the SAME reviewer session via SendMessage. The reviewer intentionally accumulates prior verdicts and implementer narratives across retry attempts — that history is a feature (it catches regressions against its own earlier feedback), not stale state. The 3-iteration maximum per task is unchanged — if still failing after 3, stop and report to the user.
 - Log each review result for the PR summary.
 
@@ -180,6 +173,9 @@ When all tasks pass review (and the optional gate is green):
    - type-check: PASS
    - reviewer sessions used: N, fallback respawns: M
    - [test results summary]
+
+   ## Deviations
+   [aggregated ## Deviations entries from implementer narratives — task, what the plan said, what shipped instead, why. Omit this section when there were none.]
    EOF
    )")
    PR_NUMBER=$(jq -r '.number' <<<"$PR_JSON")
@@ -215,10 +211,10 @@ When all tasks pass review (and the optional gate is green):
 - **One task at a time, sequentially.** Never run implementer subagents in parallel (file conflicts).
 - **Fresh implementer per attempt.** Each implementer invocation gets a clean context.
 - **Persistent reviewer per plan.** One reviewer session reviews all tasks, rotated after 12 reviewed tasks and respawned on session death. Its accumulated verdict history across tasks and retries is intentional.
-- **The plan is the contract.** Implement exactly what it says. If you need to deviate, stop and ask the user.
+- **The plan is the contract.** Implementers take the conservative option on edge cases and log it under `## Deviations` (surfaced in the PR body); a deviation that changes scope or a Named Seam stops the run and asks the user.
 - **No completion claims without evidence.** Every PASS must have a verification command that was actually run.
 - **3-iteration maximum per task.** If the review loop isn't converging, stop and surface the issue to the user rather than burning tokens.
 
 ## Playwright AC delegation
 
-When a task's AC starts with `Run: npx playwright test`, the **orchestrator** (this skill) dispatches `playwright-tester` BEFORE sending the review request, then pastes the verdict table (`| AC | Status | Evidence |`) into that SendMessage request. The reviewer cannot dispatch subagents — its tool list has no Agent tool — it only folds the verdict table into its per-AC grading. See `agents/playwright-tester.md` for the runner contract.
+When a task's AC starts with `Run: npx playwright test`, the **orchestrator** (this skill) dispatches `playwright-tester` BEFORE sending the review request, then pastes the verdict table (`| AC | Status | Evidence |`) into that SendMessage request — the reviewer grades a Playwright AC without a verdict table as FAIL. See `agents/playwright-tester.md` for the runner contract.

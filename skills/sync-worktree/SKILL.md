@@ -9,22 +9,10 @@ Bring the current feature branch up to date with the base branch's origin (`orig
 Run exactly this — do not modify the command or reimplement its logic inline:
 
 ```bash
-sync-worktree.sh <context-label>
+sync-worktree.sh <context-label>   # context-label = the calling skill or session, e.g. execute-plan, manual
 ```
 
-`<context-label>` is the calling skill or session name (e.g. `execute-plan`, `manual`). The script prints one machine-readable token on stdout:
-
-| Token | Exit | Meaning | What you do |
-|-------|------|---------|-------------|
-| `in-sync` | 0 | Branch already contains all of the base | Proceed |
-| `merged` | 0 | Merge commit landed; branch is current | Proceed |
-| `on-base` | 1 | You are on the base branch, not a feature branch | Use `sync-development.sh` instead |
-| `dirty` | 1 | Uncommitted tracked changes | Stop. Commit or stash first — never discard |
-| `diverged` | 1 | Local base branch has commits not on origin | Stop. Surface to the developer; do not work around it |
-| `offline-stale` | 1 | Fetch failed | Stop. Surface; the base cannot be trusted as current |
-| `conflict` | 1 | Merge conflicts; merge was aborted, branch unchanged | Stop. Surface to the developer with the conflicting files (`git merge origin/<base>` to reproduce) |
-
-On any exit 1, stop and tell the developer what happened. Never resolve conflicts autonomously, never `git reset --hard` or `git checkout -f` to force a clean state.
+The script prints one machine-readable token on stdout (`in-sync | merged | on-base | dirty | diverged | offline-stale | conflict`) and explains itself on stderr. Exit 0 — proceed. Exit 1 — stop and relay the script's stderr note to the developer; it names the fix. Never resolve conflicts autonomously, never `git reset --hard` or `git checkout -f` to force a clean state.
 
 ## Gotchas
 

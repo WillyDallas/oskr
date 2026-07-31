@@ -19,6 +19,10 @@ The front door. One human-driven gate that takes a raw goal to a board-ready Are
 
 Run the `/research` skill on the umbrella. It posts one cited `## Research Digest`. Skip if a fresh digest is already there. **Done:** the digest is on the issue and in context.
 
+## Phase 1.5 — Blind-spot pass
+
+Before the grill, surface the developer's likely **unknown unknowns** for this Area: from the digest and the tree, list the risks, constraints, prior art, and adjacent systems they may not know exist — each with a one-line why-it-matters. This is a briefing, not an interview: present the list, let them react, then move on. Skip when the developer clearly owns the territory (they wrote the system, or the digest surfaced nothing they'd be surprised by). **Done:** the list is presented and the developer has seen it — the grill now starts informed instead of probing blind.
+
 ## Phase 2 — Grill
 
 Run the `/grill` skill. It interviews you one question at a time toward shared understanding of the PRD's judgment slots, with **Named Seams the hard exit**. **Done:** every judgment slot settled, seams agreed.
