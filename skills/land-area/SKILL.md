@@ -2,7 +2,7 @@
 name: land-area
 description: Land a finished Area to main — once every child PR has merged into the Area branch, roll the umbrella to In Review and open the Area→main PR that `Closes` every child + the umbrella. Reach for it when an Area's child PRs are all merged.
 argument-hint: "[umbrella-issue-number]"
-allowed-tools: Bash(source bin/harness-lib.sh*) Bash(git *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(list-children.sh*) Bash(base-branch.sh*) Read Grep AskUserQuestion
+allowed-tools: Bash(source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"*) Bash(git *) Bash("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/move-issue.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/list-children.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/base-branch.sh"*) Read Grep AskUserQuestion
 ---
 
 Land a finished Area. When every child PR has merged into the Area branch, this rolls the umbrella to **In Review** and opens the one consolidated **Area → main** PR whose `Closes` directives retire every child **and** the umbrella on merge. The human reviews that single diff and merges it (GATE 3) — the merge closes everything → Done, and `/clean-up` takes it from there. **Idempotent** — safe to re-run.
@@ -11,9 +11,9 @@ Land a finished Area. When every child PR has merged into the Area branch, this 
 
 ## Steps
 
-1. **Load the Area.** `source bin/harness-lib.sh && blacksmith_issue_view <umbrella>`; confirm `.labels` carries `type/umbrella` (else stop — not an Area). Resolve:
-   - children — `list-children.sh <umbrella>` → `[ {number,state,…} ]`;
-   - the Area branch — `AREA=$(base-branch.sh <umbrella>)` (the umbrella's own recorded marker);
+1. **Load the Area.** `source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh" && blacksmith_issue_view <umbrella>`; confirm `.labels` carries `type/umbrella` (else stop — not an Area). Resolve:
+   - children — `"${CLAUDE_PLUGIN_ROOT}/bin/list-children.sh" <umbrella>` → `[ {number,state,…} ]`;
+   - the Area branch — `AREA=$("${CLAUDE_PLUGIN_ROOT}/bin/base-branch.sh" <umbrella>)` (the umbrella's own recorded marker);
    - the trunk — `MAIN` from config `.base_branch` (default `main`). If `AREA == MAIN`, stop: this Area has no branch to land.
 
 2. **Verify every child has landed on the Area branch.** A child has landed when its PR is merged into `$AREA`:
@@ -44,7 +44,7 @@ Land a finished Area. When every child PR has merged into the Area branch, this 
    ```
    **One `Closes #N` per line**, the umbrella plus every child — on merge to `main` (the default branch) they all auto-close.
 
-5. **Roll the umbrella to In Review:** `move-issue.sh "$(find-item.sh <umbrella>)" "In Review"`.
+5. **Roll the umbrella to In Review:** `"${CLAUDE_PLUGIN_ROOT}/bin/move-issue.sh" "$("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh" <umbrella>)" "In Review"`.
 
 6. **Report the PR URL.** The human reviews the consolidated Area diff and merges it (GATE 3); that merge closes every issue → Done. Tell them to run `/clean-up` afterward to reconcile docs and archive the cards.
 

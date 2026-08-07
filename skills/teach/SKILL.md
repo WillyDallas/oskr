@@ -3,7 +3,7 @@ name: teach
 description: Teach a topic across sessions — seed a mission and resource queue into the brain, then run interactive lessons from the workspace learning domain.
 disable-model-invocation: true
 argument-hint: "<topic> — what would you like to learn?"
-allowed-tools: Bash(source bin/harness-lib.sh*) Bash(open *) Bash(mkdir *) Bash(ls *) Bash(date *) Read Write Glob Grep WebFetch WebSearch AskUserQuestion
+allowed-tools: Bash(source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"*) Bash(open *) Bash(mkdir *) Bash(ls *) Bash(date *) Read Write Glob Grep WebFetch WebSearch AskUserQuestion
 ---
 
 Teaching is stateful — the user learns `$ARGUMENTS` over multiple sessions. All state
@@ -20,7 +20,7 @@ presentation artifacts into the brain.
 ## Step 0 — Resolve the learning domain (always first)
 
 ```bash
-source bin/harness-lib.sh          # tail-sources hjarne-lib.sh + learning-lib.sh
+source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"          # tail-sources hjarne-lib.sh + learning-lib.sh
 learning_resolve_root >/dev/null   # loud, instructive refusal outside a workspace
 ```
 

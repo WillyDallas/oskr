@@ -3,7 +3,7 @@ name: plan-approval
 description: "Release planned tasks into Ready — a whole Area at once (umbrella#) or one child. The plan-approval gate (GATE 2)."
 disable-model-invocation: true
 argument-hint: "[umbrella# | child#]"
-allowed-tools: Bash(source bin/harness-lib.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(list-children.sh*) Read Grep AskUserQuestion
+allowed-tools: Bash(source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/move-issue.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/list-children.sh"*) Read Grep AskUserQuestion
 ---
 
 **GATE 2 — soft, batchable.** You release planned tasks from **Plan Approval** into **Ready**. You do **not** execute — approval → Ready is a *transition*, not a trigger; `/execute-plan` (or the dispatcher) runs the code afterward. "Soft" means an Area's children clear in one pass; the v2 auto-proceed bypass is deferred.
@@ -13,7 +13,7 @@ allowed-tools: Bash(source bin/harness-lib.sh*) Bash(find-item.sh*) Bash(move-is
 Read the issue number from `$ARGUMENTS` (ask if missing). Discriminate by label:
 
 ```bash
-source bin/harness-lib.sh && blacksmith_issue_view <n> | jq '.labels'
+source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh" && blacksmith_issue_view <n> | jq '.labels'
 ```
 
 - Carries **`type/umbrella`** → **Area batch path** (`<n>` is the umbrella).
@@ -21,7 +21,7 @@ source bin/harness-lib.sh && blacksmith_issue_view <n> | jq '.labels'
 
 ## Area batch path — `/plan-approval <umbrella#>`
 
-1. **Enumerate.** `list-children.sh <umbrella#>` → children (`number`, `state`, `title`, `url`). Drop `state == closed` (already delivered).
+1. **Enumerate.** `"${CLAUDE_PLUGIN_ROOT}/bin/list-children.sh" <umbrella#>` → children (`number`, `state`, `title`, `url`). Drop `state == closed` (already delivered).
 
 2. **Walk the batch.** For each open child, read its plan — the `## Implementation Plan` / `## Plan Revised` comment (`blacksmith_issue_view <child#> | jq '.comments'`) and the `docs/plans/<id>.md` it links. Present **one line per child**: title · the seam/AC that carries risk · the **board column** it sits in · any **blockedBy** the board shows. Call out non-mechanical ACs (hard to verify in a test/grep) and any child still blocked — those are the ones not to release. **End the turn here** with an open invitation for questions; do not bundle the decision into the walkthrough (bundling collapses review into a snap judgment). The developer's board is the source of truth for each child's column and blockedBy.
 
@@ -29,13 +29,13 @@ source bin/harness-lib.sh && blacksmith_issue_view <n> | jq '.labels'
 
 4. **Release.** For each approved child:
    ```bash
-   move-issue.sh "$(find-item.sh <child#>)" Ready
+   "${CLAUDE_PLUGIN_ROOT}/bin/move-issue.sh" "$("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh" <child#>)" Ready
    ```
    **Idempotent** — a child already in Ready or beyond is a harmless re-set; the walkthrough simply won't list it as pending. **Leave blocked children** where they are — the board's native blockedBy already parks them, and the dispatcher's zero-open-blockers gate keeps a blocked Ready card un-grabbed.
 
 5. **Advance the umbrella.** The umbrella flows through the columns but **skips Ready and is never executed**. Once any child reaches Ready it advances to **In Progress**:
    ```bash
-   move-issue.sh "$(find-item.sh <umbrella#>)" "In Progress"
+   "${CLAUDE_PLUGIN_ROOT}/bin/move-issue.sh" "$("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh" <umbrella#>)" "In Progress"
    ```
    Only if it still sits in Plan Approval (or earlier). Skip if it is already In Progress / In Review / Done. **Never move the umbrella to Ready.**
 
@@ -44,7 +44,7 @@ source bin/harness-lib.sh && blacksmith_issue_view <n> | jq '.labels'
 ## Single-child path — `/plan-approval <child#>`
 
 1. Walk that child's plan (its `## Implementation Plan` comment + `docs/plans/<id>.md`); flag non-mechanical ACs. **End the turn**, invite questions.
-2. On approval: `move-issue.sh "$(find-item.sh <child#>)" Ready`.
+2. On approval: `"${CLAUDE_PLUGIN_ROOT}/bin/move-issue.sh" "$("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh" <child#>)" Ready`.
 3. The parent umbrella advances on its **first** child reaching Ready. If you know the umbrella and it still sits in Plan Approval, run `/plan-approval <umbrella#>` — it reconciles the umbrella (and clears the rest of the Area in one pass).
 
 ## Reject — route back (either path)
@@ -61,7 +61,7 @@ Then two ops on the child, then stop:
 
 1. Post the rejection comment — the header is the **routing contract**, preserve it exactly:
    ```bash
-   source bin/harness-lib.sh
+   source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"
    blacksmith_issue_comment <child#> "$(cat <<'COMMENT'
    ## Plan Rejected: Re-Plan
 
@@ -71,7 +71,7 @@ Then two ops on the child, then stop:
    ```
    For Re-Scope, swap the header to `## Plan Rejected: Re-Scope`.
 
-2. Move the child: Re-Plan → `move-issue.sh "$(find-item.sh <child#>)" Planning`; Re-Scope → `move-issue.sh "$(find-item.sh <child#>)" Scoping`.
+2. Move the child: Re-Plan → `"${CLAUDE_PLUGIN_ROOT}/bin/move-issue.sh" "$("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh" <child#>)" Planning`; Re-Scope → `"${CLAUDE_PLUGIN_ROOT}/bin/move-issue.sh" "$("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh" <child#>)" Scoping`.
 
 Then tell the developer the next step **in prose** — both targets are user-invoked processes, so never a `Skill()` call:
 - **Re-Plan** → "Run `/planning-session <child#>` to re-plan." It reads the `## Plan Rejected: Re-Plan` header and routes accordingly.

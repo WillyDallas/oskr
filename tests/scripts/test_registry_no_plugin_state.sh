@@ -23,12 +23,13 @@ if grep -rn --exclude=registry.sh 'WillyDev/oskr/repos/projects.json' "$REPO_ROO
 fi
 
 # (2) init registers through the CLI, not an inline jq write into the plugin.
-grep -qF 'registry.sh add' "$REPO_ROOT/skills/init-project/SKILL.md" \
+# (paths are ${CLAUDE_PLUGIN_ROOT}-prefixed and quoted, hence registry.sh"? add)
+grep -qE 'registry\.sh"? add' "$REPO_ROOT/skills/init-project/SKILL.md" \
   || { echo "FAIL: init-project/SKILL.md does not register via bin/registry.sh" >&2; exit 1; }
 
 # (3) init declares the CLI in allowed-tools.
-grep -qF 'Bash(registry.sh' "$REPO_ROOT/skills/init-project/SKILL.md" \
-  || { echo "FAIL: init-project/SKILL.md allowed-tools does not permit Bash(registry.sh*)" >&2; exit 1; }
+grep -qE 'Bash\("?\$?\{?CLAUDE_PLUGIN_ROOT\}?/bin/registry\.sh|Bash\(registry\.sh' "$REPO_ROOT/skills/init-project/SKILL.md" \
+  || { echo "FAIL: init-project/SKILL.md allowed-tools does not permit the registry.sh CLI" >&2; exit 1; }
 
 # (4) the example schema documents the new shape (forge discriminator) and is valid JSON.
 jq -e '.projects[0].forge' "$REPO_ROOT/repos/projects.example.json" >/dev/null \

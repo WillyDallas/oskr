@@ -2,7 +2,7 @@
 name: init-project
 description: Onboard a project into the oskr workspace — create a new repo, import an existing local folder (a move), or clone one from the forge (GitHub/Forgejo). One interview gathers every input (location → backend → secrets → shape → adopt choice), then execution provisions repo, 8-column board, config, and registry through the blacksmith. Reach for it when the developer wants oskr to onboard, import, adopt, or manage a project. Run from anywhere inside the workspace.
 argument-hint: "(no arguments — interactive)"
-allowed-tools: Bash(git *) Bash(jq *) Bash(mkdir *) Bash(mv *) Bash(cat *) Bash(echo *) Bash(test *) Bash(mktemp *) Bash(source "$CLAUDE_PLUGIN_ROOT/bin/*.sh") Bash(oskr-setup.sh*) Bash(registry.sh*) Bash(adopt-detect.sh*) Bash(adopt-register.sh*) Bash(adopt-harvest.sh*) Bash(adopt-reemit.sh*) Read Write Edit
+allowed-tools: Bash(git *) Bash(jq *) Bash(mkdir *) Bash(mv *) Bash(cat *) Bash(echo *) Bash(test *) Bash(mktemp *) Bash(source "${CLAUDE_PLUGIN_ROOT}/bin/*.sh") Bash("${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/registry.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/adopt-detect.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/adopt-register.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/adopt-harvest.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/adopt-reemit.sh"*) Read Write Edit
 ---
 
 You are walking the developer through onboarding ONE project into the oskr workspace.
@@ -25,8 +25,8 @@ mutation. Ask **one question per turn** and recommend a default.
 Env does not persist between shells. Start EVERY bash block with:
 
 ```bash
-source "$CLAUDE_PLUGIN_ROOT/bin/harness-lib.sh"
-source "$CLAUDE_PLUGIN_ROOT/bin/init-lib.sh"
+source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"
+source "${CLAUDE_PLUGIN_ROOT}/bin/init-lib.sh"
 export HARNESS_CONFIG="$INTERVIEW_CFG"   # once Step 1c has created it
 ```
 
@@ -104,7 +104,7 @@ re-probe. Loop until green. Never echo a token value. Done when: `LOGIN` is non-
 ### 1f. Adopt questions (import/clone arms only)
 
 ```bash
-VERDICT=$(adopt-detect.sh)   # "existing <N>" | "empty 0" — reads through HARNESS_CONFIG
+VERDICT=$("${CLAUDE_PLUGIN_ROOT}/bin/adopt-detect.sh")   # "existing <N>" | "empty 0" — reads through HARNESS_CONFIG
 ```
 
 - **`existing <N>`** — ask, folding `SCHEMA` in as context when it isn't `ok`:
@@ -182,13 +182,13 @@ git clone "<clone URL>" "$WS/projects/$NAME" && cd "$WS/projects/$NAME"
 ```
 
 A cloned repo that already carries `harness-config.json` is already oskr-shaped:
-`registry.sh add` only, then the summary. Otherwise proceed by the 1f decision.
+`"${CLAUDE_PLUGIN_ROOT}/bin/registry.sh" add` only, then the summary. Otherwise proceed by the 1f decision.
 
 ### The 1f decision (import/clone)
 
 - **Register-only**:
   ```bash
-  adopt-register.sh --name "$NAME" --forge "$FORGE" --owner "$OWNER" --repo "$REPO" \
+  "${CLAUDE_PLUGIN_ROOT}/bin/adopt-register.sh" --name "$NAME" --forge "$FORGE" --owner "$OWNER" --repo "$REPO" \
     --path "$PWD" [--project-number N] [--base-url URL]
   ```
   Config (no-clobber) + registry entry; the forge is not touched.
@@ -198,7 +198,7 @@ A cloned repo that already carries `harness-config.json` is already oskr-shaped:
   `oskr-setup`'s Phase 3b):
 
   ```bash
-  oskr-setup.sh save "$WS" -m "register $NAME"
+  "${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh" save "$WS" -m "register $NAME"
   ```
 
   Ask before pushing — never push without a yes. On yes: `git -C "$WS" push`
@@ -214,11 +214,11 @@ A cloned repo that already carries `harness-config.json` is already oskr-shaped:
   onto it; the real project number closes the `project_number: 0` hole):
   1. `cat "$INTERVIEW_CFG" > harness-config.json` and re-point `HARNESS_CONFIG`.
   2. Board-provisioning tail (below).
-  3. `adopt-harvest.sh harvest.md` — every existing issue into the reconciliation tasklist.
+  3. `"${CLAUDE_PLUGIN_ROOT}/bin/adopt-harvest.sh" harvest.md` — every existing issue into the reconciliation tasklist.
   4. **Reconcile — manual, by-hand guided**: walk `harvest.md` with the developer per
      `docs/adopt-reintake.md`, producing `reconciled-plan.json`. This is collaborative
      content work, not an onboarding input.
-  5. `adopt-reemit.sh reconciled-plan.json` — Epoch milestone, umbrellas, `delivery/manual`
+  5. `"${CLAUDE_PLUGIN_ROOT}/bin/adopt-reemit.sh" reconciled-plan.json` — Epoch milestone, umbrellas, `delivery/manual`
      tasks. The board lands dispatch-off; review before any work starts.
 
 ### Board-provisioning tail (new / empty-adopt / full-migration)
@@ -228,7 +228,7 @@ BOARD=$(blacksmith_provision_board)              # {project_number, url, status_
 NUMBER=$(jq -r .project_number <<<"$BOARD"); STATUS_FIELD=$(jq -r .status_field <<<"$BOARD")
 init_config_set_project_number harness-config.json "$NUMBER"          # github arms
 # STATUS_FIELD != "Status" → record it: workflow.status_field_name in harness-config.json
-registry.sh add --name "$NAME" --path "$PWD" --forge "$FORGE" --owner "$OWNER" --repo "$REPO" \
+"${CLAUDE_PLUGIN_ROOT}/bin/registry.sh" add --name "$NAME" --path "$PWD" --forge "$FORGE" --owner "$OWNER" --repo "$REPO" \
   [--project-number "$NUMBER"] [--base-url "$BASE_URL"]
 ```
 
@@ -237,7 +237,7 @@ new machine can't reconstruct. Check it in and offer a push (same decline line
 as above):
 
 ```bash
-oskr-setup.sh save "$WS" -m "register $NAME"
+"${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh" save "$WS" -m "register $NAME"
 ```
 
 (Forgejo's `provision_board` echoes nothing today — treat empty output as

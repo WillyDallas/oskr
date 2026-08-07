@@ -2,7 +2,7 @@
 name: oskr-setup
 description: One-time interactive bootstrap for a fresh oskr workspace. Creates the workspace skeleton (.oskr/, projects/, hjarne/, learning/) via the seam-tested bin/oskr-setup.sh verb, gathers global config (backend + default base branch) into .oskr/config.json, instruct-and-verifies credentials into the workspace .env / gh keychain, delegates brain/teach setup only if those skills are present, and hands off to init-project for project #1. Run from inside the directory you want to become the workspace control plane.
 argument-hint: "(no arguments — interactive)"
-allowed-tools: Bash(oskr-setup.sh*) Bash(git *) Bash(mkdir *) Bash(mktemp *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(gh auth*) Bash(source "$CLAUDE_PLUGIN_ROOT/bin/*.sh") Read Write Edit
+allowed-tools: Bash("${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh"*) Bash(git *) Bash(mkdir *) Bash(mktemp *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(gh auth*) Bash(source "${CLAUDE_PLUGIN_ROOT}/bin/*.sh") Read Write Edit
 ---
 
 You are standing up a developer's oskr **workspace** — the control plane that holds
@@ -55,7 +55,7 @@ OSKR_FORGE="$OSKR_FORGE" \
 OSKR_BASE_BRANCH="${OSKR_BASE_BRANCH:-main}" \
 OSKR_GITHUB_OWNER="${OSKR_GITHUB_OWNER:-}" \
 OSKR_FORGEJO_BASE_URL="${OSKR_FORGEJO_BASE_URL:-}" \
-  oskr-setup.sh bootstrap "$WS"
+  "${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh" bootstrap "$WS"
 ```
 
 Confirm the result: `.oskr/config.json` populated, `.oskr/registry.json` is
@@ -69,7 +69,7 @@ control plane is reproducible; secrets and cloned `projects/` are not. Run the
 seam-tested verb (idempotent; safe to re-run):
 
 ```bash
-oskr-setup.sh git-init "$WS"
+"${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh" git-init "$WS"
 ```
 
 This runs `git init`, writes the `.gitignore` contract (ignores `.env`/`*.key`/
@@ -82,7 +82,7 @@ Remote URL: set `OSKR_WORKSPACE_REMOTE` for a full URL, else it composes
 `OSKR_WORKSPACE_SLUG` (default `squirrlylabs/workspace`) onto the configured forge.
 
 **Reconstructing on a new machine:** clone the workspace repo, then run
-`oskr-setup.sh rehydrate "$WS"` to re-clone every managed project from
+`"${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh" rehydrate "$WS"` to re-clone every managed project from
 `.oskr/registry.json` into `projects/` (add `--dry-run` to preview, cloning
 nothing). rehydrate is the counterpart to git-init: git-init publishes the
 control plane, rehydrate rebuilds the working tree from it.
@@ -143,7 +143,7 @@ jq '{forge: .forge,
   "$WS/.oskr/config.json" > "$PUBLISH_CFG"
 export HARNESS_CONFIG="$PUBLISH_CFG"
 
-source "$CLAUDE_PLUGIN_ROOT/bin/harness-lib.sh"
+source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"
 
 # Create the remote repo only if origin isn't reachable yet.
 if git -C "$WS" ls-remote origin >/dev/null 2>&1; then

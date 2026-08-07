@@ -1,7 +1,7 @@
 ---
 name: sync-worktree
-description: Use before starting or resuming implementation work on a feature branch or worktree to bring it up to date with the base branch. Merges origin/<base> into the current branch via the canonical script; refuses on conflict, dirty tree, or divergence. Not for the base branch itself — that's sync-development.sh.
-allowed-tools: Bash(sync-worktree.sh*) Bash(git status*) Bash(git log*) Bash(git merge*)
+description: Use before starting or resuming implementation work on a feature branch or worktree to bring it up to date with the base branch. Merges origin/<base> into the current branch via the canonical script; refuses on conflict, dirty tree, or divergence. Not for the base branch itself — that's "${CLAUDE_PLUGIN_ROOT}/bin/sync-development.sh".
+allowed-tools: Bash("${CLAUDE_PLUGIN_ROOT}/bin/sync-worktree.sh"*) Bash(git status*) Bash(git log*) Bash(git merge*)
 ---
 
 Bring the current feature branch up to date with the base branch's origin (`origin/<base>`, where `<base>` comes from `harness-config.json`'s `.base_branch`, default `main`).
@@ -9,7 +9,7 @@ Bring the current feature branch up to date with the base branch's origin (`orig
 Run exactly this — do not modify the command or reimplement its logic inline:
 
 ```bash
-sync-worktree.sh <context-label>   # context-label = the calling skill or session, e.g. execute-plan, manual
+"${CLAUDE_PLUGIN_ROOT}/bin/sync-worktree.sh" <context-label>   # context-label = the calling skill or session, e.g. execute-plan, manual
 ```
 
 The script prints one machine-readable token on stdout (`in-sync | merged | on-base | dirty | diverged | offline-stale | conflict`) and explains itself on stderr. Exit 0 — proceed. Exit 1 — stop and relay the script's stderr note to the developer; it names the fix. Never resolve conflicts autonomously, never `git reset --hard` or `git checkout -f` to force a clean state.

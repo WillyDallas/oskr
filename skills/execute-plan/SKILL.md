@@ -2,7 +2,7 @@
 name: execute-plan
 description: Use when executing an approved implementation plan for an issue in the Ready column. Orchestrates the implementer/reviewer generator-evaluator loop per task, opens a PR when complete.
 argument-hint: "[issue-number]"
-allowed-tools: Bash(source bin/harness-lib.sh*) Bash(git *) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(base-branch.sh*) Bash(sync-development.sh*) Bash(sync-worktree.sh*) BashOutput KillShell Agent SendMessage
+allowed-tools: Bash(source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"*) Bash(git *) Bash("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/move-issue.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/base-branch.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/sync-development.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/sync-worktree.sh"*) BashOutput KillShell Agent SendMessage
 ---
 
 You are executing an approved implementation plan from the project board.
@@ -19,14 +19,14 @@ This skill frequently runs inside a headless (`claude -p`) dispatch session, whe
 
 1. **Load the issue and plan**:
    - If `$ARGUMENTS` is provided, use that issue number. Otherwise ask.
-   - Fetch the issue: `source bin/harness-lib.sh && blacksmith_issue_view <NUMBER>`
+   - Fetch the issue: `source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh" && blacksmith_issue_view <NUMBER>`
    - Find the plan comment (the one with "## Implementation Plan" and a link to `docs/plans/`)
    - Read the plan file from the linked path
 
 2. **Resolve the base branch — the task's Area branch.** Child PRs target their **Area branch** (the umbrella's recorded `area/<slug>` branch), not `main`. Resolve it with the blacksmith: it walks the task → parent umbrella → the recorded `oskr:area-branch` marker, falling back to the config base / `main` for solo / area-less tasks. `OSKR_BASE_BRANCH` still wins as an explicit override.
 
    ```bash
-   BASE_BRANCH="${OSKR_BASE_BRANCH:-$(base-branch.sh <NUMBER>)}"
+   BASE_BRANCH="${OSKR_BASE_BRANCH:-$("${CLAUDE_PLUGIN_ROOT}/bin/base-branch.sh" <NUMBER>)}"
    ```
 
 3. **Create the working branch off the Area branch** — clean tree, branched from the resolved base. Check out the resolved base first (it may already be the current Orca worktree branch, or a local-only Area branch cut off `main`).
@@ -39,27 +39,27 @@ This skill frequently runs inside a headless (`claude -p`) dispatch session, whe
    # Sync with origin only when the base tracks an upstream (a pushed Area branch or
    # main); skip cleanly for a local-only Area branch not yet pushed.
    if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
-     sync-development.sh execute-plan || { echo "ABORT: base $BASE_BRANCH is stale and could not auto-sync"; exit 1; }
+     "${CLAUDE_PLUGIN_ROOT}/bin/sync-development.sh" execute-plan || { echo "ABORT: base $BASE_BRANCH is stale and could not auto-sync"; exit 1; }
    fi
 
    git checkout -b feature/<NUMBER>-<short-slug>
    ```
-   *(Note: `sync-development.sh` / `sync-worktree.sh` were built for a single configured base; driving them against an arbitrary Area branch is a known refinement. The `@{u}` guard keeps a local-only Area branch from aborting the run.)*
+   *(Note: `"${CLAUDE_PLUGIN_ROOT}/bin/sync-development.sh"` / `"${CLAUDE_PLUGIN_ROOT}/bin/sync-worktree.sh"` were built for a single configured base; driving them against an arbitrary Area branch is a known refinement. The `@{u}` guard keeps a local-only Area branch from aborting the run.)*
 
    **Resume mode** — if a branch matching `feature/<NUMBER>-*` already exists, this is a resume of a dead dispatch: read [`RESUME.md`](./RESUME.md) in this skill's directory and follow it exactly instead of creating a branch.
 
    **Sync the worktree** — in both modes (fresh and resume), once the feature branch is checked out and before any implementation work, bring it up to date with the base:
 
    ```bash
-   sync-worktree.sh execute-plan
+   "${CLAUDE_PLUGIN_ROOT}/bin/sync-worktree.sh" execute-plan
    ```
 
    Exit 0 (`in-sync` or `merged`) — proceed. Exit 1 — stop and relay the script's stderr note to the developer; it names the fix (a `conflict` means the base moved in a way that needs human merging — the script aborts the merge and leaves the branch unchanged). Fresh branches normally report `in-sync`; the step matters for resume mode, where the branch's base predates the dead dispatch.
 
 4. **Move the issue to In Progress**:
    ```bash
-   ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
-   move-issue.sh "$ITEM_ID" "In Progress"
+   ITEM_ID=$("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh" <ISSUE_NUMBER>)
+   "${CLAUDE_PLUGIN_ROOT}/bin/move-issue.sh" "$ITEM_ID" "In Progress"
    ```
 
 ## Execution: Generator/Evaluator Loop
@@ -159,7 +159,7 @@ When all tasks pass review (and the optional gate is green):
 
 2. **Open PR targeting the base branch**:
    ```bash
-   source bin/harness-lib.sh
+   source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"
    git push -u origin "feature/<NUMBER>-<short-slug>"   # blacksmith_pr_create is REST — push first
    PR_JSON=$(blacksmith_pr_create "feature/<NUMBER>-<short-slug>" "$BASE_BRANCH" "<issue title>" "$(cat <<'EOF'
    ## Summary
@@ -195,8 +195,8 @@ When all tasks pass review (and the optional gate is green):
 
 4. **Move the issue to In Review**:
    ```bash
-   ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
-   move-issue.sh "$ITEM_ID" "In Review"
+   ITEM_ID=$("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh" <ISSUE_NUMBER>)
+   "${CLAUDE_PLUGIN_ROOT}/bin/move-issue.sh" "$ITEM_ID" "In Review"
    ```
    The agent does this directly rather than relying on a PR-body keyword.
 
