@@ -47,11 +47,11 @@ hjarne_route() {
 # hjarne_archive_raw <provenance> <content> [subdir]
 hjarne_archive_raw() {
   local provenance="$1" content="$2" subdir="${3:-}"
-  local path
-  path=$(hjarne_raw_path "$provenance" "$subdir") || return 1
-  mkdir -p "$(dirname "$path")"
-  printf '%s\n' "$content" > "$path"
-  echo "$path"
+  local dest
+  dest=$(hjarne_raw_path "$provenance" "$subdir") || return 1
+  mkdir -p "$(dirname "$dest")"
+  printf '%s\n' "$content" > "$dest"
+  echo "$dest"
 }
 
 # Append a dated bullet to <brain>/log.md, preserving prior content. The newline
@@ -74,25 +74,25 @@ hjarne_log_append() {
 # stamp line of their own. Mode defaults to deep.
 # hjarne_write_page <page-path> <content> [mode]
 hjarne_write_page() {
-  local path="$1" content="$2" mode="${3:-deep}"
+  local dest="$1" content="$2" mode="${3:-deep}"
   local today n stampline title body
   today=$(date +%F)
-  if [[ -f "$path" ]]; then
-    stampline=$(grep -m1 -E '^> Written [0-9]{4}-[0-9]{2}-[0-9]{2} .* v[0-9]+' "$path" 2>/dev/null || true)
+  if [[ -f "$dest" ]]; then
+    stampline=$(grep -m1 -E '^> Written [0-9]{4}-[0-9]{2}-[0-9]{2} .* v[0-9]+' "$dest" 2>/dev/null || true)
     n=$(printf '%s' "$stampline" | grep -oE 'v[0-9]+' | tail -1 | tr -d 'v')
     [[ -n "$n" ]] || n=0
     n=$((n + 1))
   else
     n=1
   fi
-  mkdir -p "$(dirname "$path")"
+  mkdir -p "$(dirname "$dest")"
   title=$(printf '%s\n' "$content" | head -1)
   body=$(printf '%s\n' "$content" | tail -n +2)
   {
     printf '%s\n' "$title"
     printf '> Written %s · Mode: %s · v%s\n' "$today" "$mode" "$n"
     printf '%s\n' "$body"
-  } > "$path"
+  } > "$dest"
 }
 
 # Stage a note into an inbox dir with a hjarne:meta fence carrying provenance +

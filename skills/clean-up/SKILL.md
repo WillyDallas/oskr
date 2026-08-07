@@ -2,7 +2,7 @@
 name: clean-up
 description: Clear verified-Done cards off the board and reconcile docs after merge — one system cluster per run, human-approved.
 disable-model-invocation: true
-allowed-tools: Bash(git *) Bash(jq *) Bash(source bin/harness-lib.sh*) Bash(find-item.sh*) Bash(archive-item.sh*) Bash(list-children.sh*) Bash(sync-development.sh*) Bash(mv docs/plans/*) Bash(mkdir *) Bash(tail *) Bash(date *) Agent AskUserQuestion Read Glob Grep Write Skill
+allowed-tools: Bash(git *) Bash(jq *) Bash(source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/archive-item.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/list-children.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/sync-development.sh"*) Bash(mv docs/plans/*) Bash(mkdir *) Bash(tail *) Bash(date *) Agent AskUserQuestion Read Glob Grep Write Skill
 ---
 
 **Stage 7** of the pipeline — the developer ritual you run by hand after merges land work in **Done**. It clears completed cards and brings documentation in line with what shipped, **one system cluster per run** (bounded cost, repeatable until Done is empty — run it again for the next cluster).
@@ -18,7 +18,7 @@ Runs from the base branch in the consumer repo (CWD holds `harness-config.json`)
 ## Preconditions
 
 ```bash
-sync-development.sh clean-up
+"${CLAUDE_PLUGIN_ROOT}/bin/sync-development.sh" clean-up
 ```
 
 On exit 1, **stop** and tell the developer — cleanup decided against a stale tree can archive work that is not actually shipped.
@@ -34,14 +34,14 @@ tail -30 logs/clean-up.log 2>/dev/null || echo "(no prior runs)"
 Read the Done column from the board (neutral shape — works on either backend):
 
 ```bash
-source bin/harness-lib.sh && blacksmith_list_board \
+source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh" && blacksmith_list_board \
   | jq '[.items[] | select(.status == "Done")
          | {number, title, labels}] | sort_by(.number)'
 ```
 
 The **seed** is the lowest-numbered Done card (the earliest work still on the board). Form the cluster two ways:
 
-- **Seed is an Area umbrella** (`type/umbrella` label): the cluster is the umbrella **plus its Done children** — `list-children.sh <umbrella>`, keep those with `state == "closed"` that are also in Done. The Area *is* the system; this is the natural cluster.
+- **Seed is an Area umbrella** (`type/umbrella` label): the cluster is the umbrella **plus its Done children** — `"${CLAUDE_PLUGIN_ROOT}/bin/list-children.sh" <umbrella>`, keep those with `state == "closed"` that are also in Done. The Area *is* the system; this is the natural cluster.
 - **Seed is a solo / `area/loose` task** (no umbrella): group it with other Done tasks that touched the **same system**, inferred from their plan files' paths (`docs/plans/<number>*.md`). A task with no plan and no umbrella is its own one-item cluster.
 
 Cap the cluster at **10**; leave the rest for the next run and **say so** — no silent caps.
@@ -51,10 +51,10 @@ Cap the cluster at **10**; leave the rest for the next run and **say so** — no
 For every issue in the cluster, gather evidence and classify:
 
 ```bash
-source bin/harness-lib.sh && blacksmith_issue_view <NUMBER> \
+source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh" && blacksmith_issue_view <NUMBER> \
   | jq '{number, title, state, stateReason, url}'
 # umbrellas: confirm every child is closed
-list-children.sh <UMBRELLA> | jq '[.[] | {number, state}]'
+"${CLAUDE_PLUGIN_ROOT}/bin/list-children.sh" <UMBRELLA> | jq '[.[] | {number, state}]'
 ```
 
 | Classification | Meaning | Default disposition |
@@ -73,7 +73,7 @@ Write the plan artifact to `docs/temp/clean-up-<YYYY-MM-DD>-<system>.md` (gitign
 
 ## Phase 3: Validate
 
-Re-verify mechanically before anything reaches the developer — do not trust the artifact you just wrote. Re-run `blacksmith_issue_view` (and `list-children.sh` for umbrellas) **fresh** for every `shipped` claim and confirm the close state still holds. Downgrade anything that fails to `anomaly`.
+Re-verify mechanically before anything reaches the developer — do not trust the artifact you just wrote. Re-run `blacksmith_issue_view` (and `"${CLAUDE_PLUGIN_ROOT}/bin/list-children.sh"` for umbrellas) **fresh** for every `shipped` claim and confirm the close state still holds. Downgrade anything that fails to `anomaly`.
 
 ## Phase 4: Human approval gate
 
@@ -129,8 +129,8 @@ mv docs/plans/<file>.md docs/_local_archive/<file>.md
 For each approved issue:
 
 ```bash
-ITEM_ID=$(find-item.sh <NUMBER>)
-archive-item.sh "$ITEM_ID"
+ITEM_ID=$("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh" <NUMBER>)
+"${CLAUDE_PLUGIN_ROOT}/bin/archive-item.sh" "$ITEM_ID"
 echo "$(date +%F) #<NUMBER> <classification> <evidence-url>" >> logs/clean-up.log
 ```
 
@@ -167,4 +167,4 @@ Every piece of knowledge the cluster surfaces routes to **exactly one** home. De
 - **`state: "closed"` is not "shipped".** An issue can be closed `not_planned`. For an umbrella, "shipped" means **every child closed** (the Area-branch merge model's portable signal) — not the umbrella's own state alone.
 - **Old plan files vastly outnumber clusters.** `docs/plans/` accumulates; archive only the ones linked to issues approved this run. The backlog drains over repeated runs, not one.
 - **Working artifacts vs. the record.** `docs/temp/` and `logs/` are gitignored; the committed record is the doc changes, the plan-file deletions, and any `docs/brain-inbox/` notes `/hjarne` staged as its inbox fallback. The board's archived-items view, `logs/clean-up.log`, and the Phase 8 commit body's page-pointer list carry the audit trail.
-- **Don't reach for `gh api graphql`.** Read the board through `blacksmith_list_board` and children through `list-children.sh` so the skill stays backend-neutral; use `blacksmith_issue_view` / `blacksmith_issue_comment` for per-issue read/comment.
+- **Don't reach for `gh api graphql`.** Read the board through `blacksmith_list_board` and children through `"${CLAUDE_PLUGIN_ROOT}/bin/list-children.sh"` so the skill stays backend-neutral; use `blacksmith_issue_view` / `blacksmith_issue_comment` for per-issue read/comment.

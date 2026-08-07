@@ -43,29 +43,29 @@ blacksmith_config_path() {
 }
 
 blacksmith_config_get() {
-  local path="$1" cfg out gcfg
+  local jqpath="$1" cfg out gcfg
   cfg=$(blacksmith_config_path) || return 1
   # Project tier first. A resolving key returns exactly what jq emits today;
   # the global fallback is strictly additive (present-key reads unchanged).
-  if out=$(jq -er "$path" "$cfg" 2>/dev/null); then
+  if out=$(jq -er "$jqpath" "$cfg" 2>/dev/null); then
     printf '%s\n' "$out"
     return 0
   fi
   # Absent from the project config: consult the global tier if one resolves.
   if gcfg=$(blacksmith_global_config_path 2>/dev/null); then
-    if out=$(jq -er "$path" "$gcfg" 2>/dev/null); then
+    if out=$(jq -er "$jqpath" "$gcfg" 2>/dev/null); then
       printf '%s\n' "$out"
       return 0
     fi
   fi
   # Neither tier resolved the key: reproduce today's failure (jq error -> stderr).
-  jq -er "$path" "$cfg"
+  jq -er "$jqpath" "$cfg"
 }
 
 blacksmith_config_get_array() {
-  local path="$1" cfg
+  local jqpath="$1" cfg
   cfg=$(blacksmith_config_path) || return 1
-  jq -er "${path}[]" "$cfg"
+  jq -er "${jqpath}[]" "$cfg"
 }
 
 # --- workspace-root resolution ---------------------------------------------
@@ -123,7 +123,7 @@ _blacksmith_dispatch() {
   local forge fn
   forge=$(_blacksmith_forge)
   fn="_blacksmith_${forge}_${op}"
-  if ! declare -F "$fn" >/dev/null 2>&1; then
+  if ! typeset -f "$fn" >/dev/null 2>&1; then
     _blacksmith_die "forge '$forge' has no implementation for '$op' (missing $fn)"
     return 1
   fi
@@ -337,21 +337,21 @@ _blacksmith_github_status_options_json() {
 }
 
 _blacksmith_github_column_option_id() {
-  local input="$1" display options uuid
+  local input="$1" display opts uuid
   display=$(_blacksmith_display_name_for "$input") || return 1
-  options=$(_blacksmith_github_status_options_json) || return 1
-  uuid=$(printf '%s' "$options" | jq -r --arg n "$display" '.[] | select(.name == $n) | .id')
+  opts=$(_blacksmith_github_status_options_json) || return 1
+  uuid=$(printf '%s' "$opts" | jq -r --arg n "$display" '.[] | select(.name == $n) | .id')
 
   if [[ -z "$uuid" ]]; then
     # lazy re-discover once
     _blacksmith_github_cache_clear
-    options=$(_blacksmith_github_status_options_json) || return 1
-    uuid=$(printf '%s' "$options" | jq -r --arg n "$display" '.[] | select(.name == $n) | .id')
+    opts=$(_blacksmith_github_status_options_json) || return 1
+    uuid=$(printf '%s' "$opts" | jq -r --arg n "$display" '.[] | select(.name == $n) | .id')
   fi
 
   if [[ -z "$uuid" ]]; then
     local valid
-    valid=$(printf '%s' "$options" | jq -r '[.[] | .name] | join(", ")')
+    valid=$(printf '%s' "$opts" | jq -r '[.[] | .name] | join(", ")')
     _blacksmith_die "unknown column '$input' (looked up as '$display'); valid: $valid"
     return 1
   fi
@@ -359,9 +359,9 @@ _blacksmith_github_column_option_id() {
 }
 
 _blacksmith_github_column_name_for() {
-  local uuid="$1" options
-  options=$(_blacksmith_github_status_options_json) || return 1
-  printf '%s' "$options" | jq -er --arg id "$uuid" '.[] | select(.id == $id) | .name'
+  local uuid="$1" opts
+  opts=$(_blacksmith_github_status_options_json) || return 1
+  printf '%s' "$opts" | jq -er --arg id "$uuid" '.[] | select(.id == $id) | .name'
 }
 
 # --- Board provisioning (init/setup; #27 T5) -------------------------------
@@ -400,9 +400,9 @@ _blacksmith_github_status_options_literal() {
 # resulting status field NAME ("Status" | "Phase") so the caller records
 # workflow.status_field_name.  provision_status_columns <project_node_id>
 _blacksmith_github_provision_status_columns() {
-  local project_id="$1" options field_id resp
+  local project_id="$1" opts field_id resp
   [[ -n "$project_id" ]] || { _blacksmith_die "provision_status_columns: project node id required"; return 1; }
-  options=$(_blacksmith_github_status_options_literal) || return 1
+  opts=$(_blacksmith_github_status_options_literal) || return 1
   # shellcheck disable=SC2016
   field_id=$(gh api graphql -f query='
     query($projectId: ID!) {
@@ -416,7 +416,7 @@ _blacksmith_github_provision_status_columns() {
   if [[ -n "$field_id" ]]; then
     resp=$(gh api graphql -f query="
       mutation(\$fieldId: ID!) {
-        updateProjectV2Field(input: { fieldId: \$fieldId, singleSelectOptions: $options }) {
+        updateProjectV2Field(input: { fieldId: \$fieldId, singleSelectOptions: $opts }) {
           projectV2Field { ... on ProjectV2SingleSelectField { id name } }
         }
       }
@@ -427,7 +427,7 @@ _blacksmith_github_provision_status_columns() {
     mutation(\$projectId: ID!) {
       createProjectV2Field(input: {
         projectId: \$projectId, dataType: SINGLE_SELECT, name: \"Phase\",
-        singleSelectOptions: $options
+        singleSelectOptions: $opts
       }) { projectV2Field { ... on ProjectV2SingleSelectField { id name } } }
     }
   " -f projectId="$project_id" >/dev/null 2>&1 \
@@ -962,18 +962,18 @@ _blacksmith_github_deps_unit_ok() { printf 'ok\n'; }
 # the caller decides what a mismatch means (adopt treats it as context:
 # register-only keeps the board, full migration replaces it).
 _blacksmith_github_board_schema_ok() {
-  local number raw options slug name missing=""
+  local number raw opts slug name missing=""
   number=$(blacksmith_config_get '.github.project_number' 2>/dev/null) || number=0
   [[ "$number" =~ ^[0-9]+$ && "$number" -gt 0 ]] || { printf 'none\n'; return 0; }
   raw=$(_blacksmith_github_discover_raw 2>/dev/null) || { printf 'none\n'; return 0; }
-  options=$(jq -r '
+  opts=$(jq -r '
     .data.repository.projectV2.fields.nodes[]?
     | select(.name == "Status" or .name == "Phase") | .options[]?.name
-  ' <<<"$raw" 2>/dev/null) || options=""
-  [[ -n "$options" ]] || { printf 'none\n'; return 0; }
+  ' <<<"$raw" 2>/dev/null) || opts=""
+  [[ -n "$opts" ]] || { printf 'none\n'; return 0; }
   while IFS= read -r slug; do
     name=$(_blacksmith_default_name_for_slug "$slug") || return 1
-    grep -qxF "$name" <<<"$options" || missing+="${missing:+, }$name"
+    grep -qxF "$name" <<<"$opts" || missing+="${missing:+, }$name"
   done < <(_blacksmith_board_column_slugs)
   if [[ -z "$missing" ]]; then printf 'ok\n'; else printf 'mismatch: missing %s\n' "$missing"; fi
 }
@@ -992,9 +992,12 @@ _blacksmith_github_create_issue() {
   owner=$(blacksmith_config_get '.github.owner') || return 1
   repo=$(blacksmith_config_get '.github.repo')   || return 1
   if [[ -n "$labels_csv" ]]; then
-    local l; local -a _labels=()
-    IFS=',' read -ra _labels <<< "$labels_csv"   # IFS scoped to this read only
-    for l in "${_labels[@]}"; do label_args+=( -f "labels[]=$l" ); done
+    # newline-split via while-read (portable to zsh, whose read has no -a;
+    # nl is a variable because zsh won't expand $'\n' inside ${var//./.})
+    local l nl=$'\n'
+    while IFS= read -r l; do
+      [[ -n "$l" ]] && label_args+=( -f "labels[]=$l" )
+    done <<<"${labels_csv//,/$nl}"
   fi
   # NOTE: "${label_args[@]+...}" — empty-array-safe expansion; a bare
   # "${label_args[@]}" on an empty array trips `set -u` on bash 3.2 (macOS).
@@ -1153,11 +1156,11 @@ _blacksmith_github_count_issues() {
 # Authenticated Forgejo REST call. Keeps the PAT OFF argv — it is passed via a
 # curl config read from stdin, so the secret never appears in the process table
 # (`ps`). The JSON body (non-secret) stays on argv. Echoes the response body.
-#   _blacksmith_forgejo_curl <METHOD> <path> [json_body]
+#   _blacksmith_forgejo_curl <METHOD> <apipath> [json_body]
 _blacksmith_forgejo_curl() {
-  local method="$1" path="$2" body="${3:-}" base url
+  local method="$1" apipath="$2" body="${3:-}" base url
   base=$(blacksmith_config_get '.forgejo.base_url') || return 1
-  url="${base%/}/api/v1${path}"
+  url="${base%/}/api/v1${apipath}"
   local -a args=(-fsS --config - -X "$method")
   [[ -n "$body" ]] && args+=(-H "Content-Type: application/json" -d "$body")
   args+=("$url")
@@ -1376,8 +1379,12 @@ _blacksmith_forgejo_create_issue() {
   url=$(jq -r '.html_url' <<<"$raw")
   local -a names=("status/backlog")
   if [[ -n "$labels_csv" ]]; then
-    local -a extra=(); IFS=',' read -ra extra <<<"$labels_csv"
-    names+=("${extra[@]+"${extra[@]}"}")
+    # newline-split via while-read (portable to zsh, whose read has no -a;
+    # nl is a variable because zsh won't expand $'\n' inside ${var//./.})
+    local l nl=$'\n'
+    while IFS= read -r l; do
+      [[ -n "$l" ]] && names+=("$l")
+    done <<<"${labels_csv//,/$nl}"
   fi
   local labels_json; labels_json=$(printf '%s\n' "${names[@]}" | jq -R . | jq -sc '{labels: .}')
   _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${number}/labels" "$labels_json" >/dev/null 2>&1 || true
@@ -1744,7 +1751,10 @@ blacksmith_load_workspace_env() {
     # KEY must be a valid shell identifier
     [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
     # pre-existing process env wins: only set when currently UNSET
-    [[ -n "${!key+x}" ]] && continue
+    # ($key is identifier-validated above; eval'd indirection instead of
+    # ${!key} so the lib also sources under zsh, where ${!key} is a bad
+    # substitution)
+    if eval "[ -n \"\${$key+x}\" ]"; then continue; fi
     # strip one layer of matching surrounding quotes
     if [[ ${#val} -ge 2 && "$val" == '"'*'"' ]]; then
       val="${val:1:${#val}-2}"

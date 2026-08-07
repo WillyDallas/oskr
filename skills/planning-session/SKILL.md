@@ -2,7 +2,7 @@
 name: planning-session
 description: Use when producing or revising an implementation plan for a task in the Planning column. Handles a freshly-decomposed task (a `## What`/`## AC` body with an `area/*` label) or a `## Plan Rejected: Re-Plan` rejection, and runs the planner→plan-reviewer loop. Does not scope or grill — `scope` (GATE 1) owns that.
 argument-hint: "[issue-number]"
-allowed-tools: Bash(gh api *) Bash(source bin/harness-lib.sh*) Bash(find-item.sh*) Bash(move-issue.sh*) Bash(git add docs/plans/*) Bash(git commit -m*) Bash(git status) Bash(git diff*) Bash(git rev-parse*) Agent Skill
+allowed-tools: Bash(gh api *) Bash(source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh"*) Bash("${CLAUDE_PLUGIN_ROOT}/bin/move-issue.sh"*) Bash(git add docs/plans/*) Bash(git commit -m*) Bash(git status) Bash(git diff*) Bash(git rev-parse*) Agent Skill
 ---
 
 You are running agent-only plan generation. The task was already scoped and decomposed (via `scope`), OR a prior plan was rejected with feedback. Your job is to spawn the planner/evaluator loop, post the plan, and move the task to Plan Approval. You do not ask clarifying questions or re-scope — if the input contract is missing, stop and surface the error.
@@ -11,7 +11,7 @@ You are running agent-only plan generation. The task was already scoped and deco
 
 Fetch the task — body, labels, comments:
 ```bash
-source bin/harness-lib.sh
+source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"
 blacksmith_issue_view <NUMBER>   # neutral {number,title,state,stateReason,body,labels,comments,url}
 ```
 
@@ -62,8 +62,8 @@ When DoD is still valid, update the existing plan file in place rather than crea
 5. Post a short update comment on the issue: `## Plan Revised (fast-path)` followed by a one-line diff summary (use `git diff HEAD~1 docs/plans/<PLAN_FILE>` to summarize).
 6. Move the task back to Plan Approval:
    ```bash
-   ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
-   move-issue.sh "$ITEM_ID" "Plan Approval"
+   ITEM_ID=$("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh" <ISSUE_NUMBER>)
+   "${CLAUDE_PLUGIN_ROOT}/bin/move-issue.sh" "$ITEM_ID" "Plan Approval"
    ```
 7. Skip Phase 1 and Phase 2.
 
@@ -169,7 +169,7 @@ The allowlist restricts `git add` to paths under `docs/plans/`, so any other mod
 
 1. Post the plan summary comment:
    ```bash
-   source bin/harness-lib.sh
+   source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"
    blacksmith_issue_comment <NUMBER> "$(cat <<'COMMENT'
    ## Implementation Plan
    **Plan file**: [`docs/plans/YYYY-MM-DD-<feature>.md`](link)
@@ -188,8 +188,8 @@ The allowlist restricts `git add` to paths under `docs/plans/`, so any other mod
 
 2. Move the task to Plan Approval:
    ```bash
-   ITEM_ID=$(find-item.sh <ISSUE_NUMBER>)
-   move-issue.sh "$ITEM_ID" "Plan Approval"
+   ITEM_ID=$("${CLAUDE_PLUGIN_ROOT}/bin/find-item.sh" <ISSUE_NUMBER>)
+   "${CLAUDE_PLUGIN_ROOT}/bin/move-issue.sh" "$ITEM_ID" "Plan Approval"
    ```
 
 3. **Stop.** Do not invoke `plan-approval` or `execute-plan`. If a developer ran this interactively, tell them: "Plan is in Plan Approval. Run `plan-approval <NUMBER>` when you're ready to review it." If the skill ran autonomously via the dispatcher, that's the end of this cycle.

@@ -34,7 +34,7 @@ rather than reusing the issue ref.
 
 3. **Integrate now** — when you hold the note:
    ```bash
-   source bin/harness-lib.sh   # tail-sources bin/hjarne-lib.sh
+   source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"   # tail-sources bin/hjarne-lib.sh
    hjarne_integrate '#70:board-dispatcher' board-dispatcher "$CONTENT"   # + optional: research
    ```
    Full signature: `hjarne_integrate <provenance> <system-slug> <content> [subdir] [mode]` —
@@ -50,7 +50,7 @@ rather than reusing the issue ref.
    lives at **`docs/brain-inbox/`**. Stage with
    `hjarne_inbox_stage docs/brain-inbox '<issue-or-pr-ref>:<system-slug>' "$CONTENT"`; later:
    ```bash
-   source bin/harness-lib.sh
+   source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"
    hjarne_inbox_drain docs/brain-inbox
    ```
    Drain integrates each staged note and removes its file — a dedup short-circuit still counts
@@ -75,7 +75,7 @@ STABLE issue ref is `<topic>` — e.g. `28`, never the mutable title) and hand i
 as `<content>`:
 
 ```bash
-source bin/harness-lib.sh   # tail-sources bin/hjarne-lib.sh
+source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"   # tail-sources bin/hjarne-lib.sh
 # re-fetch the just-posted "## Research Digest" comment body for issue 28
 DIGEST=$(blacksmith_issue_view 28 \
   | jq -r '[.comments[] | select(startswith("## Research Digest"))] | last')
