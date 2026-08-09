@@ -19,6 +19,14 @@ printf 'gh %s\n' "${*//$'\n'/ }" >> "$GH_SHIM_CALL_LOG"
 
 args="$*"
 
+# Simulated failures for the loud-write paths (#118): when the matching _ERR var
+# is set, print it to stderr and exit 1 the way real gh does. Unset = success as
+# before, so existing tests are unaffected.
+if [[ "$args" == "label create"*   && -n "${GH_SHIM_LABEL_CREATE_ERR:-}"  ]]; then printf '%s\n' "$GH_SHIM_LABEL_CREATE_ERR"  >&2; exit 1; fi
+if [[ "$args" == "issue edit"*     && -n "${GH_SHIM_ISSUE_EDIT_ERR:-}"    ]]; then printf '%s\n' "$GH_SHIM_ISSUE_EDIT_ERR"    >&2; exit 1; fi
+if [[ "$args" == "issue comment"*  && -n "${GH_SHIM_ISSUE_COMMENT_ERR:-}" ]]; then printf '%s\n' "$GH_SHIM_ISSUE_COMMENT_ERR" >&2; exit 1; fi
+if [[ "$args" == "api -X DELETE"*  && -n "${GH_SHIM_API_DELETE_ERR:-}"    ]]; then printf '%s\n' "$GH_SHIM_API_DELETE_ERR"    >&2; exit 1; fi
+
 # Extract a --jq / -q filter expression, if any (the arg following the flag).
 jq_expr=""
 prev=""
