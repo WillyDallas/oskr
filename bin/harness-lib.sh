@@ -781,28 +781,38 @@ _blacksmith_github_pr_open_count() {
   gh pr list --repo "$owner/$repo" --head "$branch" --state open --json number --jq 'length' 2>/dev/null || echo "0"
 }
 
-# Ensure a label exists (idempotent; never fails the caller).
+# Ensure a label exists (idempotent: an already-existing label is the benign
+# conflict — gh reports it as "already exists" — and stays quiet; every other
+# failure is loud; #118).
 _blacksmith_github_ensure_label() {
-  local name="$1" description="$2" color="$3" owner repo
+  local name="$1" description="$2" color="$3" owner repo err
   owner=$(blacksmith_config_get '.github.owner') || return 1
   repo=$(blacksmith_config_get '.github.repo')   || return 1
-  gh label create "$name" --repo "$owner/$repo" --description "$description" --color "$color" 2>/dev/null || true
+  err=$(gh label create "$name" --repo "$owner/$repo" --description "$description" --color "$color" 2>&1) && return 0
+  [[ "$err" == *"already exists"* ]] && return 0
+  _blacksmith_die "ensure_label '${name}': ${err}"
 }
 
-# Add a label to an issue (never fails the caller).
+# Add a label to an issue — ensure-then-attach. gh resolves label names via the
+# API and hard-fails on one that doesn't exist; area/* labels are minted
+# per-Area, not provisioned, so guarantee existence first (mirrors the Forgejo
+# arm, where an unknown name is silently dropped server-side; #118).
 _blacksmith_github_issue_add_label() {
   local issue="$1" label="$2" owner repo
   owner=$(blacksmith_config_get '.github.owner') || return 1
   repo=$(blacksmith_config_get '.github.repo')   || return 1
-  gh issue edit "$issue" --repo "$owner/$repo" --add-label "$label" >/dev/null 2>&1 || true
+  _blacksmith_github_ensure_label "$label" "" "ededed" || return 1
+  gh issue edit "$issue" --repo "$owner/$repo" --add-label "$label" >/dev/null \
+    || { _blacksmith_die "issue_add_label: failed to add '${label}' to #${issue}"; return 1; }
 }
 
-# Post a comment on an issue (never fails the caller).
+# Post a comment on an issue. No benign-conflict case; loud on any failure.
 _blacksmith_github_issue_comment() {
   local issue="$1" body="$2" owner repo
   owner=$(blacksmith_config_get '.github.owner') || return 1
   repo=$(blacksmith_config_get '.github.repo')   || return 1
-  gh issue comment "$issue" --repo "$owner/$repo" --body "$body" >/dev/null 2>&1 || true
+  gh issue comment "$issue" --repo "$owner/$repo" --body "$body" >/dev/null \
+    || { _blacksmith_die "issue_comment: failed to comment on #${issue}"; return 1; }
 }
 
 # --- Dependencies (native; #26 slice 2) ------------------------------------
@@ -880,14 +890,18 @@ _blacksmith_github_issue_close() {
     || { _blacksmith_die "issue_close: failed to close #$issue"; return 1; }
 }
 
-# Remove a label from an issue by NAME (never fails the caller — mirrors the
-# issue_add_label family; an absent label is a no-op).
+# Remove a label from an issue by NAME. Absent label = benign no-op (HTTP 404);
+# every other failure is loud (#118). The name rides in the URL path, so scoped
+# labels (type/umbrella) must be percent-encoded or the route 404s on the slash.
 #   issue_remove_label <issue> <label>
 _blacksmith_github_issue_remove_label() {
-  local issue="$1" label="$2" owner repo
+  local issue="$1" label="$2" owner repo enc err
   owner=$(blacksmith_config_get '.github.owner') || return 1
   repo=$(blacksmith_config_get '.github.repo')   || return 1
-  gh api -X DELETE "repos/${owner}/${repo}/issues/${issue}/labels/${label}" >/dev/null 2>&1 || true
+  enc=$(jq -rn --arg l "$label" '$l | @uri')
+  err=$(gh api -X DELETE "repos/${owner}/${repo}/issues/${issue}/labels/${enc}" 2>&1 >/dev/null) && return 0
+  [[ "$err" == *"HTTP 404"* ]] && return 0
+  _blacksmith_die "issue_remove_label: failed to remove '${label}' from #${issue}: ${err}"
 }
 
 # --- PR create / list-merged / open-probe (delivery verbs; #101) --------------
@@ -1169,6 +1183,47 @@ header = "Authorization: token ${FORGEJO_TOKEN:-}"
 CFG
 }
 
+# Status-discriminating write (POST/PATCH/DELETE). _blacksmith_forgejo_curl's -f
+# collapses every HTTP >= 400 into an opaque exit 22, which pushed callers into
+# `|| true` and made failed writes look like successes (#118). This variant reads
+# the status code so each endpoint can tolerate ONLY its benign conflict (csv in
+# $2; "" for none) and die loudly on everything else. Side-effect writes only —
+# the response body is discarded (it feeds the die message on failure).
+#   _blacksmith_forgejo_write <what> <benign_codes_csv> <method> <path> [json]
+_blacksmith_forgejo_write() {
+  local what="$1" benign="$2" method="$3" apipath="$4" body="${5:-}" base url out code resp
+  base=$(blacksmith_config_get '.forgejo.base_url') || return 1
+  url="${base%/}/api/v1${apipath}"
+  local -a args=(-sS --config - -X "$method" -w $'\n%{http_code}')
+  [[ -n "$body" ]] && args+=(-H "Content-Type: application/json" -d "$body")
+  args+=("$url")
+  out=$(curl "${args[@]}" <<CFG
+header = "Authorization: token ${FORGEJO_TOKEN:-}"
+CFG
+  ) || { _blacksmith_die "$what: transport failure (${method} ${apipath})"; return 1; }
+  code="${out##*$'\n'}"
+  resp="${out%$'\n'*}"
+  case ",200,201,202,204,${benign}," in
+    *",${code},"*) return 0 ;;
+  esac
+  _blacksmith_die "$what: HTTP ${code} from ${method} ${apipath}: ${resp:0:200}"
+}
+
+# rc 0 iff a repo label with this EXACT name exists. Existence must be checked
+# before both create (duplicate create returns 201 and mints a second label —
+# verified live on Forgejo 15.0.3, #118) and attach (attach-by-name silently
+# ignores unknown names with HTTP 200, same verification). limit=100 matches
+# board_schema_ok's read of the same endpoint.
+_blacksmith_forgejo_label_exists() {
+  local name="$1" owner repo
+  owner=$(blacksmith_config_get '.forgejo.owner') || return 1
+  repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
+  _blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/labels?limit=100" 2>/dev/null \
+    | jq -e --arg n "$name" \
+        '(if type == "array" then . else [] end) | map(select(.name == $n)) | length > 0' \
+      >/dev/null
+}
+
 # Echo the blocked-by edges of an issue as the SAME normalized JSON array the
 # GitHub backend returns. Native Forgejo issue-dependencies API (GA since v1.20):
 #   GET /api/v1/repos/{owner}/{repo}/issues/{index}/dependencies = the blockers.
@@ -1230,8 +1285,9 @@ _blacksmith_forgejo_issue_close() {
 }
 
 # Remove a label by NAME. Forgejo deletes BY LABEL ID, so resolve name -> id off
-# the issue's labels first (same id-resolution archive_item uses). Never fails
-# the caller; unresolvable name = no-op.
+# the issue's labels first (same id-resolution archive_item uses). A label not on
+# the issue is a no-op; 404/422 on the DELETE (label vanished between the resolve
+# and the delete) is the same no-op. Any other failure is loud (#118).
 _blacksmith_forgejo_issue_remove_label() {
   local issue="$1" label="$2" owner repo lid
   owner=$(blacksmith_config_get '.forgejo.owner') || return 1
@@ -1239,7 +1295,8 @@ _blacksmith_forgejo_issue_remove_label() {
   lid=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}/labels" 2>/dev/null \
         | jq -r --arg n "$label" '[.[] | select(.name == $n)][0].id // empty')
   [[ -n "$lid" ]] || return 0
-  _blacksmith_forgejo_curl DELETE "/repos/${owner}/${repo}/issues/${issue}/labels/${lid}" >/dev/null 2>&1 || true
+  _blacksmith_forgejo_write "issue_remove_label #${issue} '${label}'" "404,422" DELETE \
+    "/repos/${owner}/${repo}/issues/${issue}/labels/${lid}"
 }
 
 # --- PR create / list-merged / open-probe (delivery verbs; #101) --------------
@@ -1364,8 +1421,10 @@ _blacksmith_forgejo_find_item() {
 _blacksmith_forgejo_item_issue_number() { printf '%s' "$1"; }
 
 # Create an issue (+ initial status/backlog and any csv labels, by name). Echoes
-# the neutral { number, url }. Requires the scoped labels to exist on the repo
-# (provisioned in setup); a missing label is tolerated so the issue still lands.
+# the neutral { number, url }. Every label is ENSURED before the attach: the
+# attach endpoint silently drops unknown names (HTTP 200; #118), and area/* labels
+# are minted per-Area rather than provisioned. A post-create failure is loud and
+# names the already-created issue so the caller can recover without duplicating it.
 #   create_issue <title> [body] [labels_csv]
 _blacksmith_forgejo_create_issue() {
   local title="$1" body="${2:-}" labels_csv="${3:-}" owner repo raw number url
@@ -1386,23 +1445,33 @@ _blacksmith_forgejo_create_issue() {
       [[ -n "$l" ]] && names+=("$l")
     done <<<"${labels_csv//,/$nl}"
   fi
+  local n
+  for n in "${names[@]}"; do
+    _blacksmith_forgejo_ensure_label "$n" \
+      || { _blacksmith_die "create_issue: #${number} created but label '${n}' could not be ensured"; return 1; }
+  done
   local labels_json; labels_json=$(printf '%s\n' "${names[@]}" | jq -R . | jq -sc '{labels: .}')
-  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${number}/labels" "$labels_json" >/dev/null 2>&1 || true
+  _blacksmith_forgejo_write "create_issue: label attach on #${number}" "" POST \
+    "/repos/${owner}/${repo}/issues/${number}/labels" "$labels_json" || return 1
   jq -nc --argjson n "$number" --arg u "$url" '{number: $n, url: $u}'
 }
 
 # Move an issue to a column by adding the exclusive status/<slug> label. The
 # exclusive flag auto-evicts the previous status/* label in one atomic call
 # (verified live). column may be a slug or display name; normalize to the slug.
+# The label is ensured first (attach-by-name silently drops unknown names with
+# HTTP 200; #118) with provisioning's exact description/color, so a repo whose
+# board was never provisioned self-heals instead of silently not moving.
 #   move_issue <issue_number> <column>
 _blacksmith_forgejo_move_issue() {
   local issue="$1" column="$2" owner repo slug
   owner=$(blacksmith_config_get '.forgejo.owner') || return 1
   repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
   slug=$(_blacksmith_normalize_slug "$column")
-  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${issue}/labels" \
-    "$(jq -nc --arg l "status/${slug}" '{labels: [$l]}')" >/dev/null \
-    || { _blacksmith_die "move_issue (forgejo) failed: #$issue -> status/$slug"; return 1; }
+  _blacksmith_forgejo_ensure_exclusive_label "status/${slug}" "oskr status column" "ededed" || return 1
+  _blacksmith_forgejo_write "move_issue #${issue} -> status/${slug}" "" POST \
+    "/repos/${owner}/${repo}/issues/${issue}/labels" \
+    "$(jq -nc --arg l "status/${slug}" '{labels: [$l]}')"
 }
 
 # Echo the column DISPLAY NAME for an issue (read off its status/* label), or
@@ -1421,33 +1490,36 @@ _blacksmith_forgejo_issue_status() {
 # The handle is the issue number, so item_status == issue_status.
 _blacksmith_forgejo_item_status() { _blacksmith_forgejo_issue_status "$@"; }
 
-# Ensure a label exists (idempotent; never fails the caller). Forgejo wants a
-# '#'-prefixed hex color; the neutral callers pass bare hex (GitHub style).
+# Ensure a label exists (idempotent: get-then-create — POSTing an existing name
+# does NOT 422, it mints a duplicate label; #118). Forgejo wants a '#'-prefixed
+# hex color; the neutral callers pass bare hex (GitHub style). 409/422 on the
+# create is tolerated as a lost creation race; every other failure is loud.
 _blacksmith_forgejo_ensure_label() {
   local name="$1" description="${2:-}" color="${3:-888888}" owner repo
   owner=$(blacksmith_config_get '.forgejo.owner') || return 1
   repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
   [[ "$color" == \#* ]] || color="#$color"
-  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/labels" \
-    "$(jq -nc --arg n "$name" --arg d "$description" --arg c "$color" '{name:$n, description:$d, color:$c}')" \
-    >/dev/null 2>&1 || true
+  _blacksmith_forgejo_label_exists "$name" && return 0
+  _blacksmith_forgejo_write "ensure_label '${name}'" "409,422" POST "/repos/${owner}/${repo}/labels" \
+    "$(jq -nc --arg n "$name" --arg d "$description" --arg c "$color" '{name:$n, description:$d, color:$c}')"
 }
 
 # Idempotent EXCLUSIVE scoped-label create (a single-select board column). Unlike
 # the neutral _blacksmith_forgejo_ensure_label, sets exclusive:true so assigning one
 # label in a scope auto-evicts the prior same-scope label (server-enforced; see
-# docs/research/2026-06-27-backend-capability.md:43-49). Never fails the caller
-# (re-creating an existing label 422s and is tolerated for idempotency).
+# docs/research/2026-06-27-backend-capability.md:43-49). Get-then-create for the
+# same duplicate-minting reason as ensure_label (#118); an existing label is
+# taken as done — exclusivity is not re-checked or patched.
 #   _blacksmith_forgejo_ensure_exclusive_label <name> [description] [color]
 _blacksmith_forgejo_ensure_exclusive_label() {
   local name="$1" description="${2:-}" color="${3:-ededed}" owner repo
   owner=$(blacksmith_config_get '.forgejo.owner') || return 1
   repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
   [[ "$color" == \#* ]] || color="#$color"
-  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/labels" \
+  _blacksmith_forgejo_label_exists "$name" && return 0
+  _blacksmith_forgejo_write "ensure_exclusive_label '${name}'" "409,422" POST "/repos/${owner}/${repo}/labels" \
     "$(jq -nc --arg n "$name" --arg d "$description" --arg c "$color" \
-        '{name:$n, exclusive:true, color:$c, description:$d}')" \
-    >/dev/null 2>&1 || true
+        '{name:$n, exclusive:true, color:$c, description:$d}')"
 }
 
 # Assert the per-repo issue-dependencies unit is enabled. If it is off, Forgejo's
@@ -1486,22 +1558,29 @@ _blacksmith_forgejo_provision_board() {
   for slug in feature bug chore spike docs;  do _blacksmith_forgejo_ensure_exclusive_label "category/${slug}" "oskr category" "5319e7"; done
 }
 
-# Add a label to an issue by name (never fails the caller).
+# Add a label to an issue by name — ensure-then-attach. The attach endpoint
+# returns HTTP 200 and silently DROPS names that don't exist on the repo
+# (verified live, #118), so the only reliable contract is to guarantee existence
+# first. That also serves area/* labels, which are minted per-Area rather than
+# provisioned up front. Loud on real failure.
 _blacksmith_forgejo_issue_add_label() {
   local issue="$1" label="$2" owner repo
   owner=$(blacksmith_config_get '.forgejo.owner') || return 1
   repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
-  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${issue}/labels" \
-    "$(jq -nc --arg l "$label" '{labels: [$l]}')" >/dev/null 2>&1 || true
+  _blacksmith_forgejo_ensure_label "$label" || return 1
+  _blacksmith_forgejo_write "issue_add_label #${issue} '${label}'" "" POST \
+    "/repos/${owner}/${repo}/issues/${issue}/labels" \
+    "$(jq -nc --arg l "$label" '{labels: [$l]}')"
 }
 
-# Post a comment on an issue (never fails the caller).
+# Post a comment on an issue. No benign-conflict case; loud on any failure.
 _blacksmith_forgejo_issue_comment() {
   local issue="$1" body="$2" owner repo
   owner=$(blacksmith_config_get '.forgejo.owner') || return 1
   repo=$(blacksmith_config_get '.forgejo.repo')   || return 1
-  _blacksmith_forgejo_curl POST "/repos/${owner}/${repo}/issues/${issue}/comments" \
-    "$(jq -nc --arg b "$body" '{body: $b}')" >/dev/null 2>&1 || true
+  _blacksmith_forgejo_write "issue_comment #${issue}" "" POST \
+    "/repos/${owner}/${repo}/issues/${issue}/comments" \
+    "$(jq -nc --arg b "$body" '{body: $b}')"
 }
 
 # Echo the whole board in the backend-NEUTRAL shape (same as the GitHub backend):
@@ -1562,7 +1641,8 @@ _blacksmith_forgejo_count_actionable() {
 
 # Archive = drop the issue off the board view by removing its status/* label
 # (the issue itself is untouched). Forgejo has no project card to archive; this is
-# the labels-as-columns analog. Never fails the caller.
+# the labels-as-columns analog. Already-uncolumned is a no-op, as is a 404/422
+# race on the DELETE; any other failure is loud (#118).
 _blacksmith_forgejo_archive_item() {
   local issue="$1" owner repo lid
   owner=$(blacksmith_config_get '.forgejo.owner') || return 1
@@ -1570,7 +1650,8 @@ _blacksmith_forgejo_archive_item() {
   lid=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${issue}/labels" 2>/dev/null \
         | jq -r '[.[] | select(.name | startswith("status/"))][0].id // empty')
   [[ -n "$lid" ]] || return 0
-  _blacksmith_forgejo_curl DELETE "/repos/${owner}/${repo}/issues/${issue}/labels/${lid}" >/dev/null 2>&1 || true
+  _blacksmith_forgejo_write "archive_item #${issue}" "404,422" DELETE \
+    "/repos/${owner}/${repo}/issues/${issue}/labels/${lid}"
 }
 
 # --- Parent/child hierarchy (body-fenced; the one forced body-parse case) ---
@@ -1614,8 +1695,9 @@ _blacksmith_forgejo_link_parent() {
     || { _blacksmith_die "link_parent: failed to update parent #$parent"; return 1; }
   cbody=$(_blacksmith_forgejo_curl GET "/repos/${owner}/${repo}/issues/${child}" | jq -r '.body // ""')
   if ! printf '%s' "$cbody" | grep -q 'blacksmith:parent'; then
-    _blacksmith_forgejo_curl PATCH "/repos/${owner}/${repo}/issues/${child}" \
-      "$(jq -nc --arg b "${cbody}"$'\n\n'"<!-- blacksmith:parent #${parent} -->" '{body: $b}')" >/dev/null 2>&1 || true
+    _blacksmith_forgejo_write "link_parent: parent marker on child #${child}" "" PATCH \
+      "/repos/${owner}/${repo}/issues/${child}" \
+      "$(jq -nc --arg b "${cbody}"$'\n\n'"<!-- blacksmith:parent #${parent} -->" '{body: $b}')"
   fi
 }
 
