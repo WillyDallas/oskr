@@ -26,19 +26,62 @@ _blacksmith_die() {
 
 # --- forge-agnostic config getters -----------------------------------------
 
+# Echo the project config at <dir> (root, then .claude/); return 1 if neither exists.
+_blacksmith_config_at() {
+  if [[ -f "$1/harness-config.json" ]]; then
+    echo "$1/harness-config.json"; return 0
+  fi
+  if [[ -f "$1/.claude/harness-config.json" ]]; then
+    echo "$1/.claude/harness-config.json"; return 0
+  fi
+  return 1
+}
+
+# Echo the main worktree's checkout dir, or return 1. Linked worktrees share the
+# main worktree's git dir, so --git-common-dir points home from anywhere.
+_blacksmith_main_worktree() {
+  local common
+  command -v git >/dev/null 2>&1 || return 1
+  common=$(git rev-parse --git-common-dir 2>/dev/null) || return 1
+  [[ -n "$common" ]] || return 1
+  [[ "$common" == /* ]] || common="$PWD/$common"
+  [[ "$(basename "$common")" == ".git" ]] || return 1   # bare repo: no checkout
+  dirname "$common"
+}
+
+# Echo the project's harness-config.json. Resolution order:
+#   1. $HARNESS_CONFIG (explicit override)
+#   2. nearest ancestor of $PWD carrying one — a `cd` into docs/, a scratchpad,
+#      or a nested worktree must not un-project you (#38)
+#   3. the repo's main worktree, for checkouts whose branch predates the config
+#      or that live outside the repo (Orca parks worktrees in ~/orca/workspaces)
+# The upward walk stops at the workspace root, else $HOME, so a stray config
+# above the workspace cannot capture unrelated directories.
 blacksmith_config_path() {
+  local dir stop found
   if [[ -n "${HARNESS_CONFIG:-}" ]]; then
     [[ -f "$HARNESS_CONFIG" ]] || { _blacksmith_die "HARNESS_CONFIG set but file missing: $HARNESS_CONFIG"; return 1; }
     echo "$HARNESS_CONFIG"
     return 0
   fi
-  if [[ -f "$PWD/harness-config.json" ]]; then
-    echo "$PWD/harness-config.json"; return 0
+
+  stop=$(blacksmith_workspace_dir 2>/dev/null) || stop="${HOME:-/}"
+  dir="$PWD"
+  while :; do
+    if found=$(_blacksmith_config_at "$dir"); then
+      echo "$found"; return 0
+    fi
+    [[ "$dir" == "$stop" || "$dir" == "/" ]] && break
+    dir=$(dirname "$dir")
+  done
+
+  if dir=$(_blacksmith_main_worktree); then
+    if found=$(_blacksmith_config_at "$dir"); then
+      echo "$found"; return 0
+    fi
   fi
-  if [[ -f "$PWD/.claude/harness-config.json" ]]; then
-    echo "$PWD/.claude/harness-config.json"; return 0
-  fi
-  _blacksmith_die "not in an oskr project; expected harness-config.json at \$PWD or \$PWD/.claude/"
+
+  _blacksmith_die "not in an oskr project; no harness-config.json at $PWD or any ancestor — cd into the project dir, or set HARNESS_CONFIG"
   return 1
 }
 
