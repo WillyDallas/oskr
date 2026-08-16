@@ -1,6 +1,6 @@
 ---
 name: oskr-setup
-description: One-time interactive bootstrap for a fresh oskr workspace. Creates the workspace skeleton (.oskr/, projects/, hjarne/, learning/) via the seam-tested bin/oskr-setup.sh verb, gathers global config (backend + default base branch) into .oskr/config.json, instruct-and-verifies credentials into the workspace .env / gh keychain, delegates brain/teach setup only if those skills are present, and hands off to init-project for project #1. Run from inside the directory you want to become the workspace control plane.
+description: One-time interactive bootstrap for a fresh oskr workspace. Creates the workspace skeleton (.oskr/, projects/, hjarne/, learning/, CLAUDE.md) via the seam-tested bin/oskr-setup.sh verb, gathers global config (backend + default base branch) into .oskr/config.json, instruct-and-verifies credentials into the workspace .env / gh keychain, delegates brain/teach setup only if those skills are present, and hands off to init-project for project #1. Run from inside the directory you want to become the workspace control plane.
 argument-hint: "(no arguments — interactive)"
 allowed-tools: Bash("${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh"*) Bash(git *) Bash(mkdir *) Bash(mktemp *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(gh auth*) Bash(source "${CLAUDE_PLUGIN_ROOT}/bin/*.sh") Read Write Edit
 ---
@@ -61,6 +61,12 @@ OSKR_FORGEJO_BASE_URL="${OSKR_FORGEJO_BASE_URL:-}" \
 Confirm the result: `.oskr/config.json` populated, `.oskr/registry.json` is
 `{"projects": []}`, `projects/ learning/` exist, and `hjarne/` is stamped
 (`hjarne/schema.md` present — the verb runs `bin/hjarne-skeleton.sh`).
+
+The verb also stamps a workspace-root `CLAUDE.md` — the ambient blacksmith
+context that keeps free-form sessions (ones that never invoke an oskr skill)
+off raw forge API calls. It is non-clobbering: an existing file is never
+overwritten, so re-running setup preserves the developer's edits. Tell the
+developer it is theirs to extend with workspace-specific conventions.
 
 ## Phase 3b: Put the workspace under version control
 
