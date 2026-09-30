@@ -1,8 +1,8 @@
 ---
 name: oskr-setup
-description: One-time interactive bootstrap for a fresh oskr workspace. Creates the workspace skeleton (.oskr/, projects/, hjarne/, learning/, CLAUDE.md) via the seam-tested bin/oskr-setup.sh verb, gathers global config (backend + default base branch) into .oskr/config.json, instruct-and-verifies credentials into the workspace .env / gh keychain, delegates brain/teach setup only if those skills are present, and hands off to init-project for project #1. Run from inside the directory you want to become the workspace control plane.
+description: Bootstrap an oskr workspace — stand up a fresh one (skeleton, workspace CLAUDE.md, global config, credentials, git, publish), or set up a new machine joining an existing workspace (sync, pick projects to clone over ssh, wire project memory). Run from inside the workspace directory.
 argument-hint: "(no arguments — interactive)"
-allowed-tools: Bash("${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh"*) Bash(git *) Bash(mkdir *) Bash(mktemp *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(gh auth*) Bash(source "${CLAUDE_PLUGIN_ROOT}/bin/*.sh") Read Write Edit
+allowed-tools: Bash("${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh"*) Bash(git *) Bash(mkdir *) Bash(mktemp *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(command -v *) Bash(gh auth*) Bash(source "${CLAUDE_PLUGIN_ROOT}/bin/*.sh") Read Write Edit
 ---
 
 You are standing up a developer's oskr **workspace** — the control plane that holds
@@ -20,9 +20,12 @@ GH_USER=$(gh api user --jq '.login' 2>/dev/null || echo "")
 
 Report in one line each: workspace dir (`$WS`), already-configured (`$ALREADY`), gh user.
 
-**Guard:** if `$ALREADY = yes`, stop: "This directory is **already** an oskr workspace
-(`$WS/.oskr/config.json` exists). Re-running setup will not clobber it. To reconfigure,
-edit `.oskr/config.json` by hand or remove it first." Do not proceed.
+**Guard:** if `$ALREADY = yes`, this directory is **already** an oskr workspace — setup
+never clobbers it. Ask: "Is this a **new machine** joining this workspace (you just
+cloned it)? I can set up this machine: clone the projects you pick and wire memory."
+- **Yes** → skip Phases 1–6 and run **Join: set up this machine** (below).
+- **No** → stop: "Re-running setup will not clobber it. To reconfigure, edit
+  `.oskr/config.json` by hand or remove it first." Do not proceed.
 
 ## Phase 1: Gather global config (the only manual part)
 
@@ -87,11 +90,11 @@ is the confirmed final phase below, or leave it local.
 Remote URL: set `OSKR_WORKSPACE_REMOTE` for a full URL, else it composes
 `OSKR_WORKSPACE_SLUG` (default `squirrlylabs/workspace`) onto the configured forge.
 
-**Reconstructing on a new machine:** clone the workspace repo, then run
-`"${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh" rehydrate "$WS"` to re-clone every managed project from
-`.oskr/registry.json` into `projects/` (add `--dry-run` to preview, cloning
-nothing). rehydrate is the counterpart to git-init: git-init publishes the
-control plane, rehydrate rebuilds the working tree from it.
+**Reconstructing on a new machine:** clone the workspace repo, then run this skill
+from inside it — the Phase 0 guard routes to **Join: set up this machine**, which
+calls `rehydrate` to re-clone the projects you pick from `.oskr/registry.json`.
+rehydrate is the counterpart to git-init: git-init publishes the control plane,
+rehydrate rebuilds the working tree from it.
 
 ## Phase 4: Brain / teach — delegate only if present, never block
 
@@ -170,3 +173,63 @@ projects on different forges/instances coexist in one workspace. The workspace
 repo itself tracks ONE remote — a workspace tracked on a different
 forge/instance than `.oskr/config.json`'s forge is the `OSKR_WORKSPACE_REMOTE`
 override edge case.
+
+## Join: set up this machine
+
+Reached only from the Phase 0 guard (the workspace repo is cloned, `.oskr/config.json`
+exists). Nothing here re-creates the workspace — it syncs it, clones chosen projects,
+and reports what the developer must still do by hand. One question at a time.
+
+**J1 — Prerequisites.** Check `command -v git jq` (add `gh` only if the registry has a
+`github` entry). Check `.env` by existence only — never read or write `.env`:
+
+```bash
+test -f "$WS/.env" && echo ".env present" || echo ".env missing"
+```
+
+If missing, tell the developer to create `$WS/.env` themselves with
+`FORGEJO_TOKEN=<pat>` (forgejo workspaces), and recommend a separate token for this
+machine with only the scopes it needs, not the site-admin one. Wait for a "done".
+
+**J2 — Sync.** Bring the control plane up to date:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh" pull "$WS"
+```
+
+**J3 — Clone protocol (forgejo only).** If `jq -r '.forgejo.ssh_base // ""'
+"$WS/.oskr/config.json"` is empty, ask for it. Default: when
+`git -C "$WS" remote get-url origin` is `ssh://…`, offer its scheme + user + host +
+port (e.g. `ssh://git@git.squirrlylabs.xyz:2222`). Write it with jq, then
+`"${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh" save "$WS" -m "set forgejo.ssh_base"`.
+With `forgejo.ssh_base` set, rehydrate clones this instance's projects over ssh — the
+machine needs an ssh key registered on the forge, not a stored https credential.
+
+**J4 — Choose projects.** Show the plan, then ask which missing projects to clone
+(by name; "all" is fine):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh" rehydrate "$WS" --dry-run
+"${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh" rehydrate "$WS" --only <a> --only <b>
+```
+
+On a clone failure, say which project failed and that it is usually ssh access
+(key not on the forge) — then continue with the rest.
+
+**J5 — Per project, report what is still manual.** For each cloned project:
+- `.env.example` present → "copy to `.env` and fill it in yourself".
+- The project's `CLAUDE.md` names its toolchain — point at it; don't install anything.
+- **Memory.** Read `jq -r '.autoMemoryDirectory // ""' projects/<name>/.claude/settings.json`.
+  If set, check it resolves (expand a leading `~/` to `$HOME/`) to `$WS/memory/<name>`;
+  if not, warn that the workspace sits at a different path than on the machine that
+  linked it, so this machine's sessions write memory elsewhere. If unset, offer
+  `"${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh" memory-link "$WS" <name>` — it moves the
+  project's auto-memory into `$WS/memory/<name>/` and sets the pointer; the developer
+  then commits `projects/<name>/.claude/settings.json` in that project's repo.
+
+**J6 — Close** with the sync habit, since memory now lives in the workspace:
+
+> This machine is set up. Pull at the start of a session
+> (`oskr-setup.sh pull "$WS"`), and `save` + push at the end — project memory
+> lives in the workspace repo, so unsynced machines drift and can conflict.
+

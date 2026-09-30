@@ -76,6 +76,7 @@ squirrlylabs/
 ├── CLAUDE.md            # ambient context for free-form sessions (below)
 ├── hjarne/              # the brain
 ├── learning/
+├── memory/              # per-project Claude Code memory (`memory-link`)
 └── projects/            # gitignored; rebuilt by `rehydrate`, not vendored
 ```
 
@@ -125,14 +126,24 @@ overwrites it on a re-run.
 
 ## Reconstructing on a new machine
 
-The workspace repo tracks the control plane; `projects/` is gitignored. So:
+The workspace repo tracks the control plane; `projects/` is gitignored. On the new
+machine, install the plugin (step 1), add an ssh key to your forge, then:
 
 ```bash
 git clone <workspace remote> squirrlylabs && cd squirrlylabs
-OSKR_BIN=$(ls -d ~/.claude/plugins/cache/oskr-marketplace/oskr/*/bin | sort -V | tail -1)
-"$OSKR_BIN/oskr-setup.sh" rehydrate .          # --dry-run to preview
+# create .env by hand — secrets were never in the repo
+claude   # then run /oskr:oskr-setup
 ```
 
-`rehydrate` re-clones every registry entry from **that entry's own** coordinates,
-so projects on different forges coexist in one workspace. Then restore `.env` by
-hand — secrets were never in the repo.
+Setup sees the existing `.oskr/config.json` and offers to **set up this machine**:
+it pulls the workspace, asks for `forgejo.ssh_base` (so Forgejo projects clone over
+ssh, not a stored https credential), lets you pick which projects to clone
+(`rehydrate --only`), and lists what each project still needs by hand — its own
+`.env`, its toolchain, its memory link.
+
+**Project memory travels with the workspace.** `oskr-setup.sh memory-link <ws> <name>`
+moves a project's Claude Code auto-memory into `memory/<name>/` and points the
+project at it (`autoMemoryDirectory` in its tracked `.claude/settings.json`). Keep the
+workspace at the same `~/` path on every machine, and sync: `oskr-setup.sh pull` at
+the start of a session, `save` + push at the end — otherwise two machines' memory
+drifts and can conflict.
