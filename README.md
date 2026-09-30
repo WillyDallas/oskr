@@ -16,7 +16,9 @@ oskr ships as a Claude Code plugin. Add the marketplace, install, and reload:
 ```
 
 To pull later changes: `/plugin marketplace update oskr-marketplace` →
-`/plugin update oskr@oskr-marketplace` → `/reload-plugins`. For local development
+`/plugin update oskr@oskr-marketplace` → `/reload-plugins`. Updates are manual:
+Claude Code does not notify you of a new oskr version, and a release only shows
+up once `version` in `plugin.json` is bumped. For local development
 against a checkout, launch with `claude --plugin-dir <path-to-repo>` instead.
 
 Starting from zero — creating the workspace, wiring secrets, onboarding your
