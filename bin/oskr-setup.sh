@@ -13,11 +13,29 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 _setup_die() { echo "[oskr-setup] $1" >&2; exit 1; }
 
+# _oskr_setup_claude_md <workspace_dir> — stamp the workspace-root CLAUDE.md from
+# templates/workspace-CLAUDE.md, substituting the workspace directory name.
+# NON-CLOBBERING: an existing file is left byte-for-byte alone, so a developer's
+# edits survive every re-run (#117). The file is the ambient blacksmith context for
+# free-form sessions — ones that never invoke an oskr skill and so would otherwise
+# improvise raw API calls against the forge.
+_oskr_setup_claude_md() {
+  local ws="$1" dest tmpl body name ph='{{WORKSPACE_NAME}}'
+  dest="$ws/CLAUDE.md"
+  [[ -e "$dest" ]] && return 0
+  tmpl="$SCRIPT_DIR/../templates/workspace-CLAUDE.md"
+  [[ -f "$tmpl" ]] || _setup_die "missing template $tmpl"
+  name="$(basename "$(cd "$ws" && pwd)")"
+  body="$(cat "$tmpl")"
+  printf '%s\n' "${body//$ph/$name}" > "$dest"
+}
+
 # Create the workspace skeleton and first-create an empty project registry.
 # Idempotent on dirs (mkdir -p) and on the registry (first-create only). The
 # brain is stamped via bin/hjarne-skeleton.sh — the canonical populator, itself
 # idempotent and non-clobbering — so a fresh workspace gets a STAMPED hjarne/
 # (schema.md/README.md/todo.md/log.md + wiki/raw/projects), never a bare dir.
+# The workspace-root CLAUDE.md is stamped on the same non-clobbering contract.
 #   skeleton <workspace_dir>
 oskr_setup_skeleton() {
   local ws="${1:-$PWD}"
@@ -26,6 +44,7 @@ oskr_setup_skeleton() {
   if [[ ! -f "$ws/.oskr/registry.json" ]]; then
     printf '%s\n' '{"projects": []}' > "$ws/.oskr/registry.json"
   fi
+  _oskr_setup_claude_md "$ws"
 }
 
 # Write .oskr/config.json from environment-supplied NON-SECRET values. Guarded:

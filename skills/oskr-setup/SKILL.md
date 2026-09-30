@@ -1,6 +1,6 @@
 ---
 name: oskr-setup
-description: Bootstrap an oskr workspace — stand up a fresh one (skeleton, global config, credentials, git, publish), or set up a new machine joining an existing workspace (sync, pick projects to clone over ssh, wire project memory). Run from inside the workspace directory.
+description: Bootstrap an oskr workspace — stand up a fresh one (skeleton, workspace CLAUDE.md, global config, credentials, git, publish), or set up a new machine joining an existing workspace (sync, pick projects to clone over ssh, wire project memory). Run from inside the workspace directory.
 argument-hint: "(no arguments — interactive)"
 allowed-tools: Bash("${CLAUDE_PLUGIN_ROOT}/bin/oskr-setup.sh"*) Bash(git *) Bash(mkdir *) Bash(mktemp *) Bash(jq *) Bash(cat *) Bash(echo *) Bash(test *) Bash(command -v *) Bash(gh auth*) Bash(source "${CLAUDE_PLUGIN_ROOT}/bin/*.sh") Read Write Edit
 ---
@@ -64,6 +64,12 @@ OSKR_FORGEJO_BASE_URL="${OSKR_FORGEJO_BASE_URL:-}" \
 Confirm the result: `.oskr/config.json` populated, `.oskr/registry.json` is
 `{"projects": []}`, `projects/ learning/` exist, and `hjarne/` is stamped
 (`hjarne/schema.md` present — the verb runs `bin/hjarne-skeleton.sh`).
+
+The verb also stamps a workspace-root `CLAUDE.md` — the ambient blacksmith
+context that keeps free-form sessions (ones that never invoke an oskr skill)
+off raw forge API calls. It is non-clobbering: an existing file is never
+overwritten, so re-running setup preserves the developer's edits. Tell the
+developer it is theirs to extend with workspace-specific conventions.
 
 ## Phase 3b: Put the workspace under version control
 

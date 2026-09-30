@@ -212,4 +212,4 @@ Then on the M1: install Claude Code, git (Xcode CLT), jq → ssh key to Forgejo 
 
 ## Release
 
-A new capability (Join flow + three verbs), so **minor**: `0.9.2 → 0.10.0` in `.claude-plugin/plugin.json` on the PR.
+A new capability (Join flow + three verbs), so **minor**: `0.10.0 → 0.11.0` in `.claude-plugin/plugin.json` on the PR.
