@@ -48,7 +48,8 @@ Evaluate each DoD criterion and grade it:
 Evaluation axes (applied across all DoD criteria):
 
 1. **Effect mapping completeness**: Are affected files/functions/tables named explicitly? Are data flows traced?
-2. **Deep-research appropriateness**: If the issue involves an unfamiliar library, was the `deep-research` skill invoked? If it was invoked, were the citations concrete?
+2. **Deep-research appropriateness**: If the issue involves an unfamiliar library, was the `oskr:deep-research` skill invoked? If it was invoked, were the citations concrete?
+   - **Search quality** (grade PASS/FAIL with evidence; re-fetch at least two load-bearing claims yourself): every claim has a fetched source plus a quote or located passage; key claims rest on primary sources, not aggregators; community-only claims are dated, version-stamped, and kept apart as leads; a disconfirming query was run; conflicts and `not found / unverified` are stated; a search log with a stopping reason is present. "Looks well-sourced" is never evidence.
 3. **Decomposition call**: Is the "one PR vs multiple" judgment backed by evidence (file counts, scope boundaries)? A `decompose=no` call without a scope estimate is FAIL.
 4. **Output branch correctness**:
    - *Clarifying questions* branch: Are questions specific, numbered, and answerable in one sentence? "How should this work?" is FAIL. "Should the retry backoff be exponential (base 2) or linear (base 500ms)?" is PASS.
@@ -72,6 +73,7 @@ Output format for execution round:
 
 ### Verification
 - deep-research skill invoked when appropriate: yes/no/n/a
+- search quality (sourcing, quotes, disconfirmation, log): PASS/FAIL
 - decomposition assessment backed by evidence: yes/no
 - output branch (questions/approval) justified: yes/no
 ```
