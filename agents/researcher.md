@@ -44,7 +44,7 @@ Investigate against the frozen DoD. Use these tools:
 
    **You read a synced tree, shell-free.** The calling skill fast-forwards the base branch before spawning you; trust the tree in front of you. The dangerous case is a negative conclusion about recently-landed sibling work ("helper X is absent", "module Y unregistered") — if a finding hinges on whether a sibling PR merged after your spawn, state it as uncertain and flag it for the developer instead of asserting the negative.
 
-2. **Deep research**: Invoke the `oskr:deep-research` skill (via `Skill` tool) for any external lookup — it owns effort tiers, source routing, citation, and the stopping rule. It applies when the issue involves:
+2. **Deep research**: you are shell-free and cannot verify quotes against raw pages, so for external lookups the `research` skill dispatches `web-researcher` (which runs `oskr:deep-research` and writes an evidence packet to disk); use its returned digest and file path. External lookup applies when the issue involves:
    - A library, framework, or API the codebase hasn't used before
    - A design pattern for which best-practice references would materially affect the plan
    - Security or performance considerations that require external validation

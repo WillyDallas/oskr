@@ -7,7 +7,7 @@ allowed-tools: Bash(source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"*) Bash("${
 
 Assemble one grounded, cited digest so the grill that follows starts informed instead of cold. This is an **ability**: `scope` runs it inline and the v2 loop runs it ahead of time — either way the output is the same durable comment.
 
-> Web evidence comes from the **researcher** agent running `oskr:deep-research` (tiered search, source routing, claim-to-quote citation); the **research-reviewer** grades its search quality. A vendored `hjarne` brain read is future enrichment.
+> Web evidence comes from **web-researcher** agents running `oskr:deep-research` (tiered search, source routing, claim-to-quote citation, evidence packet on disk); the **research-reviewer** re-fetches claims from raw pages. A vendored `hjarne` brain read is future enrichment.
 
 ## Steps
 
@@ -15,9 +15,9 @@ Assemble one grounded, cited digest so the grill that follows starts informed in
 
 2. **Sync the tree before spawning agents.** Researchers are shell-free and trust the tree in front of them; a stale base yields confident-wrong findings. `"${CLAUDE_PLUGIN_ROOT}/bin/sync-development.sh" research` — on a non-zero exit, surface the message and stop rather than research a stale base.
 
-3. **Dispatch the loop.** Spawn the **researcher** agent (working tree + web), then the **research-reviewer** agent to check it. Iterate until the reviewer is satisfied — **max 2 review rounds per phase**; after that, accept the current draft and carry the reviewer's unresolved flags into the digest for the developer.
+3. **Dispatch the loop.** Spawn the **researcher** agent (working tree) and, when the question needs external evidence, a **web-researcher** per distinct external question — it writes its evidence packet to `docs/research/` and returns a short digest + path. Then the **research-reviewer** agent checks both. Iterate until the reviewer is satisfied — **max 2 review rounds per phase**; after that, accept the current draft and carry the reviewer's unresolved flags into the digest for the developer.
 
-4. **Assemble ONE digest** — recommendation · key files & candidate **seams** (`file:path`) · risks · open questions · citations (URLs + `file:line`) · **not found / unverified** · conflicts between sources. Web claims keep their source type, date, and version. One digest, not a transcript; the full search log stays in the researcher's output.
+4. **Assemble ONE digest** — recommendation · key files & candidate **seams** (`file:path`) · risks · open questions · citations (URLs + `file:line`) · **not found / unverified** · conflicts between sources. Web claims keep their source type, date, and version. One digest, not a transcript; cite the evidence-packet path instead of pasting the search log.
 
 5. **Post it** as a `## Research Digest` comment (`source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh" && blacksmith_issue_comment <n> "<digest>"`), and **leave the card where it is** — research never crosses a gate.
 
