@@ -18,7 +18,7 @@ Search like a **fact-checker**, not a summarizer: a finding is only as good as t
 
 5. **Vet laterally.** For an unfamiliar source, leave the page: find who is behind it and what independent sources say about it. Polish, domain, and tone are not credibility. Reject aggregators, listicles, and SEO content when a primary source exists, and log why. *Done when* every source carries a vetting note or a rejection reason.
 
-6. **Corroborate, and hunt the counter-case.** Count independent **evidence families**, not outlets — one announcement echoed by five sites is one source. Run at least one query built to **disconfirm** your leading hypothesis. Record conflicts instead of smoothing them over. *Done when* a disconfirming query is logged and every conflict is listed. Community posts (Reddit, HN, forums) are **leads**: stamp each with date and version, and find the primary source it rests on or keep it in the unconfirmed list.
+6. **Corroborate, and hunt the counter-case.** Count independent **evidence families**, not outlets — one announcement echoed by five sites is one source. Run at least one query built to **disconfirm** your leading hypothesis. Record conflicts instead of smoothing them over. *Done when* a disconfirming query is logged and every conflict is listed. Community posts (Reddit, HN, forums) are **leads** — for Reddit, use `oskr:reddit-research`: stamp each with date and version, and find the primary source it rests on or keep it in the unconfirmed list.
 
 7. **Self-check against the failure modes**, then mark what survives `[unverified]`: fabricated or altered quote · stale-as-fresh (outside the freshness window) · missing baseline · interpretation reported as the source's claim · invented number · secondary cited as primary · headline claim not supported by the sub-finding · single-source claim stated as consensus. A claim that fails is fixed or dropped; never invent a URL or a quote. *Done when* every claim is clean or marked `[unverified]`.
 
@@ -26,6 +26,6 @@ Search like a **fact-checker**, not a summarizer: a finding is only as good as t
 
 ## Output
 
-Write the full **evidence packet** to a file (`docs/research/<date>-<slug>.md` unless told otherwise) and return to the invoker only: the **answer** · confidence (high = ≥2 independent primary families, medium = one primary, low = secondary or inferred) · **not found / unverified** · **conflicts** · the file path. Keep the return under ~300 words.
+Write the full **evidence packet** to a file (`docs/research/<date>-<slug>.md` unless told otherwise) and return to the invoker only: the **answer** · confidence (high = ≥2 independent primary families, medium = one primary, low = secondary or inferred) · **not found / unverified** · **conflicts** · the file path. Keep the return short — the packet holds the detail.
 
 The packet holds: every claim with source URL, source type (primary / secondary / community), date, applicable version, verbatim quote or located passage, and confidence · conflicts · not found / unverified · the **search log** (queries, sources rejected and why, tier and calls used, the stopping reason).
