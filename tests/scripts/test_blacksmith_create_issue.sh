@@ -46,4 +46,24 @@ out2=$(PATH="$SHIM_DIR:$PATH" \
   bash -c "set -euo pipefail; source '$REPO_ROOT/bin/harness-lib.sh'; blacksmith_create_issue 'No labels'")
 assert_eq '42' "$(jq -r '.number' <<<"$out2")" "create_issue works with no labels under set -u" || exit 1
 
+# zsh leg: the same no-labels call under zsh, the shell skills' Bash calls run in on
+# macOS. With the outer quotes, zsh turned the empty label array into one empty
+# argument, which real gh rejects ("accepts 1 arg(s), received 2"). The shim logs
+# args space-joined, so a stray empty argument shows as a trailing space after body=.
+if command -v zsh >/dev/null 2>&1; then
+  LOG3="$SHIM_DIR/create-nolabels-zsh.log"; : > "$LOG3"
+  out3=$(PATH="$SHIM_DIR:$PATH" \
+    HARNESS_CONFIG="$REPO_ROOT/tests/scripts/fixtures/harness-config.sample.json" \
+    GH_SHIM_CALL_LOG="$LOG3" \
+    GH_SHIM_FIXTURE="$REPO_ROOT/tests/scripts/fixtures/gh-project-discovery.json" \
+    GH_SHIM_CREATE_ISSUE_FIXTURE="$REPO_ROOT/tests/scripts/fixtures/gh-create-issue.json" \
+    XDG_CACHE_HOME="$CACHE_DIR" \
+    zsh -c "source '$REPO_ROOT/bin/harness-lib.sh'; blacksmith_create_issue 'No labels'")
+  assert_eq '42' "$(jq -r '.number' <<<"$out3")" "create_issue works with no labels under zsh" || exit 1
+  grep -qE '/issues -f title=No labels -f body=$' "$LOG3" \
+    || { echo "FAIL: zsh passed a stray empty argument to gh: $(grep -F '/issues ' "$LOG3" | cat -e)" >&2; exit 1; }
+else
+  echo "test_blacksmith_create_issue: zsh not installed; zsh leg skipped"
+fi
+
 echo "test_blacksmith_create_issue: PASS"

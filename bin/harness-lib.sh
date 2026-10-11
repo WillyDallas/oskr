@@ -1056,9 +1056,12 @@ _blacksmith_github_create_issue() {
       [[ -n "$l" ]] && label_args+=( -f "labels[]=$l" )
     done <<<"${labels_csv//,/$nl}"
   fi
-  # NOTE: "${label_args[@]+...}" — empty-array-safe expansion; a bare
-  # "${label_args[@]}" on an empty array trips `set -u` on bash 3.2 (macOS).
-  raw=$(gh api "repos/${owner}/${repo}/issues" -f title="$title" -f body="$body" "${label_args[@]+"${label_args[@]}"}" 2>/dev/null) \
+  # NOTE: ${label_args[@]+"${label_args[@]}"}, outer quotes deliberately absent.
+  # A bare "${label_args[@]}" on an empty array trips `set -u` on bash 3.2 (macOS),
+  # and with the outer quotes zsh turns an empty array into ONE empty argument,
+  # which gh rejects. The inner quotes keep each label intact.
+  # shellcheck disable=SC2068
+  raw=$(gh api "repos/${owner}/${repo}/issues" -f title="$title" -f body="$body" ${label_args[@]+"${label_args[@]}"} 2>/dev/null) \
     || { _blacksmith_die "create_issue failed (gh api)"; return 1; }
   number=$(printf '%s' "$raw" | jq -er '.number')  || { _blacksmith_die "create_issue: no number in response"; return 1; }
   node_id=$(printf '%s' "$raw" | jq -er '.node_id') || { _blacksmith_die "create_issue: no node_id in response"; return 1; }
