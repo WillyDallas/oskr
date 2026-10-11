@@ -52,7 +52,9 @@ rust`); do not slug that.
    TOPIC="<confirmed canonical name>"
    TOPIC_DIR=$(learning_topic_dir "$TOPIC")
    ```
-   Use `$TOPIC` for every `<topic>` reference below. The slug stays stable across
+   Use `$TOPIC` for every `<topic>` reference below, and always brace it in a string
+   (`"learning/${TOPIC}:resources"`). Under zsh, `$TOPIC:r…` and `$TOPIC:gl…` are
+   modifiers: zsh silently rewrites the provenance. The slug stays stable across
    sessions because the name is **pinned** as the mission page's H1
    (`# Mission: {Topic}`), which `learning_list_topics` reads back — so a differently
    phrased re-invocation reconciles to the same topic instead of forking a duplicate.

@@ -79,6 +79,17 @@ grep -qF 'Raw form for reference: learning:resource id=guide status=queued' "$PP
 grep -qF '    learning:resource id=guide status=ingested' "$PPAGE" \
   || { echo "FAIL: mark corrupted the pre-marker prose example" >&2; exit 1; }
 
+# zsh leg: mark + status round-trip under zsh, the shell skills' Bash calls run in on
+# macOS. A `local status=…` (zsh's read-only $status) once aborted the mark before any write.
+if command -v zsh >/dev/null 2>&1; then
+  zsh -c "source '$REPO_ROOT/bin/harness-lib.sh'; learning_resource_mark '$TOPIC' rust-reference ingested" \
+    || { echo "FAIL: learning_resource_mark failed under zsh" >&2; exit 1; }
+  GOT=$(zsh -c "source '$REPO_ROOT/bin/harness-lib.sh'; learning_resource_status '$TOPIC' rust-reference")
+  assert_eq ingested "$GOT" "mark round-trips under zsh"
+else
+  echo "test_learning_queue: zsh not installed; zsh leg skipped"
+fi
+
 # seam purity (structural): hjarne_write_page is the ONLY mutation path
 grep -qF 'hjarne_write_page' "$REPO_ROOT/bin/learning-lib.sh" \
   || { echo "FAIL: learning-lib does not call hjarne_write_page" >&2; exit 1; }
