@@ -146,13 +146,16 @@ hjarne_integrate() {
 # Drain an inbox dir: for each staged note, parse the hjarne:meta fence, integrate,
 # and remove the file on success. A dedup short-circuit counts as success (integrate
 # returns 0) and STILL clears the file. System slug = the :<slug> suffix of the
-# provenance. No nullglob (bash 3.2): the [[ -e ]] guard skips an unexpanded glob.
+# provenance. No nullglob in bash 3.2: the [[ -e ]] guard skips an unexpanded glob.
+# zsh aborts on the unmatched glob (NOMATCH) before that guard runs, so null_glob is
+# set for this function there.
 # Gated on a live (stamped) brain: with no schema.md there is nothing to drain
 # INTO — integrate's inbox fallback would re-stage each note to its own
 # provenance-keyed path and the rm below would then delete it (note dropped).
 # hjarne_inbox_drain <inbox-dir>
 hjarne_inbox_drain() {
   local inbox="$1" file meta provenance subdir system content brain
+  if [[ -n "${ZSH_VERSION:-}" ]]; then setopt local_options null_glob; fi
   if ! brain=$(hjarne_resolve_brain 2>/dev/null) || [[ ! -f "$brain/schema.md" ]]; then
     return 0
   fi

@@ -38,6 +38,20 @@ hjarne_inbox_drain "$INBOX"
 # M8: 2nd drain on an empty inbox is a no-op (exit 0 under set -e)
 hjarne_inbox_drain "$INBOX"
 
+# zsh leg: an unmatched glob aborts zsh (NOMATCH) unless null_glob is set, so the
+# empty-inbox drain must also be a no-op there, and a staged note must still drain.
+if command -v zsh >/dev/null 2>&1; then
+  zsh -c "source '$REPO_ROOT/bin/harness-lib.sh'; hjarne_inbox_drain '$INBOX'" \
+    || { echo "FAIL: empty-inbox drain failed under zsh" >&2; exit 1; }
+  F4=$(hjarne_inbox_stage "$INBOX" '#90:zsh-drain' "$C1")
+  zsh -c "source '$REPO_ROOT/bin/harness-lib.sh'; hjarne_inbox_drain '$INBOX'" \
+    || { echo "FAIL: drain failed under zsh" >&2; exit 1; }
+  test -f "$BRAIN/wiki/zsh-drain.md" || { echo "FAIL: zsh drain did not integrate" >&2; exit 1; }
+  ! test -e "$F4" || { echo "FAIL: zsh drain did not remove the staged file" >&2; exit 1; }
+else
+  echo "test_hjarne_inbox: zsh not installed; zsh leg skipped"
+fi
+
 # no live (stamped) brain → drain is a no-op that PRESERVES the staged note: it
 # must never let integrate's inbox fallback re-stage + rm the file (note dropped)
 WS2=$(cd "$(mktemp -d)" && pwd)              # workspace with an UNSTAMPED hjarne/
