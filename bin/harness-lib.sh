@@ -1839,12 +1839,22 @@ _blacksmith_forgejo_count_issues() {
   printf '%s' "$raw" | jq 'length' 2>/dev/null || echo 0
 }
 
+# --- sibling-lib directory (bash: BASH_SOURCE; zsh: the %x prompt escape) ---
+# zsh leaves BASH_SOURCE empty, so dirname would yield "." and the guarded
+# sources below would silently skip both seams. eval hides the zsh-only
+# expansion from bash's parser.
+if [[ -n "${ZSH_VERSION:-}" ]]; then
+  eval '_OSKR_LIB_DIR="${${(%):-%x}:h}"'
+else
+  _OSKR_LIB_DIR="$(dirname "${BASH_SOURCE[0]}")"
+fi
+
 # --- hjarne write seam (optional sibling; tail-sourced, exit-status-neutral) ---
-_HJARNE_LIB="$(dirname "${BASH_SOURCE[0]}")/hjarne-lib.sh"
+_HJARNE_LIB="$_OSKR_LIB_DIR/hjarne-lib.sh"
 if [[ -r "$_HJARNE_LIB" ]]; then source "$_HJARNE_LIB"; fi
 
 # --- learning-domain seam (optional sibling; tail-sourced AFTER hjarne, exit-status-neutral) ---
-_LEARNING_LIB="$(dirname "${BASH_SOURCE[0]}")/learning-lib.sh"
+_LEARNING_LIB="$_OSKR_LIB_DIR/learning-lib.sh"
 if [[ -r "$_LEARNING_LIB" ]]; then source "$_LEARNING_LIB"; fi
 
 # --- workspace .env auto-load (#102) ---------------------------------------

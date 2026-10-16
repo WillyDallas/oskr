@@ -15,6 +15,15 @@ LIB="$REPO_ROOT/bin/harness-lib.sh"
 bash -c "set -e; source '$LIB'; declare -F learning_resolve_root >/dev/null; declare -F learning_resource_mark >/dev/null" \
   || { echo "FAIL: learning verbs not exposed via harness-lib.sh tail-wire" >&2; exit 1; }
 
+# present under zsh — the shell skills' Bash calls run in on macOS. zsh leaves
+# BASH_SOURCE empty, which once made the tail-wire skip both seams silently.
+if command -v zsh >/dev/null 2>&1; then
+  zsh -c "source '$LIB'; typeset -f learning_resolve_root >/dev/null && typeset -f hjarne_integrate >/dev/null" \
+    || { echo "FAIL: learning/hjarne verbs not exposed via harness-lib.sh under zsh" >&2; exit 1; }
+else
+  echo "test_learning_lib_wire: zsh not installed; zsh leg skipped"
+fi
+
 # order: learning tail-source line sits after the hjarne one
 H=$(grep -nF 'hjarne-lib.sh"' "$LIB" | head -1 | cut -d: -f1)
 L=$(grep -nF 'learning-lib.sh"' "$LIB" | head -1 | cut -d: -f1)

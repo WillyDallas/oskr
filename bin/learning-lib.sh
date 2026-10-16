@@ -65,6 +65,9 @@ learning_resources_page() {
 # fork a duplicate.
 learning_list_topics() {
   local brain wiki page slug name
+  # zsh aborts on a glob with no matches (NOMATCH) before the [[ -e ]] guard
+  # below can run; null_glob, scoped to this function, expands it to nothing.
+  if [[ -n "${ZSH_VERSION:-}" ]]; then setopt local_options null_glob; fi
   brain=$(hjarne_resolve_brain 2>/dev/null) || return 0
   wiki="$brain/wiki"
   [[ -d "$wiki" ]] || return 0
@@ -119,12 +122,14 @@ learning_resource_status() {
 # (still a stamped rewrite).
 # learning_resource_mark <topic> <resource> <queued|ingested>
 learning_resource_mark() {
-  local topic="$1" resource="$2" status="$3"
+  # new_status, not status: zsh's $status is a read-only alias of $? and a
+  # `local status=…` aborts the function there.
+  local topic="$1" resource="$2" new_status="$3"
   local page content
   _learning_check_id "$resource" || return 1
-  case "$status" in
+  case "$new_status" in
     queued|ingested) ;;
-    *) echo "learning: invalid status '$status' (expected queued|ingested)" >&2; return 1 ;;
+    *) echo "learning: invalid status '$new_status' (expected queued|ingested)" >&2; return 1 ;;
   esac
   page=$(learning_resources_page "$topic") || return 1
   if [[ ! -f "$page" ]]; then
@@ -135,7 +140,7 @@ learning_resource_mark() {
     echo "learning: unknown resource '$resource' in topic '$topic' — no marker in $page" >&2
     return 1
   fi
-  content=$(awk -v id="$resource" -v st="$status" '
+  content=$(awk -v id="$resource" -v st="$new_status" '
     NR == 2 && /^> Written / { next }
     {
       sub("<!-- learning:resource id=" id " status=(queued|ingested) -->",
