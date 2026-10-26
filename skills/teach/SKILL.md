@@ -120,13 +120,28 @@ supplied resource has an id, a How-to-use instruction, and `status=queued`.
    proximal development. Reuse components from `$TOPIC_DIR/assets/` (a shared
    stylesheet is the first component every topic earns); compress durable knowledge
    into `$TOPIC_DIR/reference/*.html`. Presentation artifacts land under `$TOPIC_DIR`
-   and nowhere else — never in the brain, never in the repo.
-4. **Open it for the user**: `open "$TOPIC_DIR/lessons/NNNN-<dash-case-name>.html"`.
-5. **Run the feedback loop**: retrieval practice, spacing, interleaving; immediate
-   feedback; quiz answers formatted so length gives no clue.
+   and nowhere else — never in the brain, never in the repo. The lesson ends with a
+   quiz built per [QUIZ-FORMAT.md](./QUIZ-FORMAT.md) — read it before writing any
+   quiz. A "Try it" exercise is exploration: never ask the user to report its results.
+4. **Open it for the user**: `open "$TOPIC_DIR/lessons/NNNN-<dash-case-name>.html"`,
+   and ask them to paste the quiz's results line into the session when done.
+5. **Chat round** — once the results line arrives, before any new lesson. Ask one
+   question at a time, answered in the user's own words (no options), with immediate
+   feedback after each. At least three, one per slot:
+   - **miss** — a wrong pick from the results line; none → the lesson's hardest idea
+   - **transfer** — the idea applied to a case the lesson did not show
+   - **spaced** — an earlier lesson's idea; a record's **Open** question claims this
+     slot first
 
-Done when: the lesson file exists under `$TOPIC_DIR/lessons/`, is open for the user,
-and every resource the lesson drew on is marked `ingested`.
+   Keep asking while answers still reveal something — a miss, a shaky answer, wording
+   that drifts from the glossary (correct the wording even when the answer is right).
+   Once every slot is asked, stop after two clean answers in a row on the new idea,
+   or at about six questions; the user's "more" or "stop" overrides. A question the user moves past unanswered
+   goes under **Open** in a record (per LEARNING-RECORD-FORMAT.md).
+
+Done when: the lesson file exists under `$TOPIC_DIR/lessons/`, was opened for the
+user, every resource the lesson drew on is marked `ingested`, and the chat round hit
+its stop rule — or its unanswered question is saved under **Open**.
 
 ## Write gates — records and glossary
 
@@ -135,6 +150,7 @@ Both are gated on **demonstrated understanding**, not coverage:
 - **Learning record** (`learning/<topic>:record-NNNN-<slug>`): write one only when the
   user demonstrably understood something non-trivial, disclosed prior knowledge,
   corrected a misconception, or the mission shifted (per LEARNING-RECORD-FORMAT.md).
+  The evidence is chat-round answers; a quiz score alone never passes the gate.
   NNNN = highest existing record number for the topic, plus one.
 - **Glossary term**: promote a term only when the user can use it correctly.
 - **Supersede, never delete**: when a later record contradicts an earlier one, rewrite
