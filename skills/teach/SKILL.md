@@ -2,7 +2,7 @@
 name: teach
 description: Teach a topic across sessions — seed a mission and resource queue into the brain, then run interactive lessons from the workspace learning domain.
 disable-model-invocation: true
-argument-hint: "<topic> — what would you like to learn?"
+argument-hint: "<topic> — what would you like to learn? (none: status of every topic)"
 allowed-tools: Bash(source "${CLAUDE_PLUGIN_ROOT}/bin/harness-lib.sh"*) Bash(open *) Bash(mkdir *) Bash(ls *) Bash(date *) Read Write Glob Grep WebFetch WebSearch AskUserQuestion
 ---
 
@@ -28,6 +28,16 @@ The resolver walks to the workspace root — it works from any directory inside 
 workspace and never trusts the CWD. **If it fails: STOP.** Relay its stderr
 instructions to the user verbatim (cd into a workspace, export `OSKR_WORKSPACE`, or
 run `/oskr:oskr-setup`) and write NOTHING — no directory, no page, no artifact.
+
+## Status view (no topic given)
+
+When `$ARGUMENTS` is empty, run `learning_status` (one row per topic: slug, name, last
+session, pace, days since, state) and show it as a table, overdue rows first. A
+`no-pace` row means the mission lacks its `Pace:` line (MISSION-FORMAT.md) — offer
+to add it. Then ask which topic to continue, or what new one to start; the answer
+becomes `$ARGUMENTS` for Step 0.5.
+
+Done when: the table is shown and the user has named a topic (or ended the session).
 
 ## Step 0.5 — Name the topic and reconcile (before any write)
 

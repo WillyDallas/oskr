@@ -21,6 +21,7 @@ understand X" — push for the underlying outcome.}
 - {…}
 
 ## Constraints
+- Pace: {N} sessions a week
 - {Time, budget, prior commitments, learning preferences}
 
 ## Out of scope
@@ -34,6 +35,8 @@ understand X" — push for the underlying outcome.}
   canonical name — `learning_list_topics` reads it back so a differently phrased
   re-invocation reconciles to this topic. Set it from the name confirmed at the skill's
   Step 0.5 and keep it stable; renaming it forks the topic.
+- **Pace is machine-read.** `learning_status` takes N from `Pace: N sessions a week`
+  to flag an overdue topic — ask for it in the interview and keep the line's shape.
 - **One mission per topic.** Two unrelated goals are two topics.
 - **Concrete over abstract.** "Ship a Rust CLI to my team" beats "learn Rust."
 - **Push back on vagueness.** If the user cannot articulate why, interview them
