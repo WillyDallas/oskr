@@ -21,26 +21,31 @@ mkdir -p "$W"
 page() {  # page <system-slug> <h1> <stamp-date> [body]
   printf '# %s\n> Written %s · Mode: deep · v1\n\n%s\n' "$2" "$3" "${4:-}" > "$W/$1.md"
 }
-# rust: pace 1, one stale session
-page learning-rust-mission "Mission: Rust" 2026-01-01 $'## Constraints\n- Pace: 1 session a week'
+# rust: pace 1, one stale session; its mission was edited later, which must not count
+page learning-rust-mission "Mission: Rust" 2026-01-09 $'## Constraints\n- Pace: 1 session a week'
 page learning-rust-resources "Rust Resources" 2026-01-01
 # french: pace 2; the newest stamp is a record, not the mission
 page learning-french-mission "Mission: French" 2026-01-01 $'## Constraints\n- Pace: 2 sessions a week (while in class)'
 page learning-french-glossary "French Glossary" 2026-01-03
 page learning-french-record-0001-start "Start" 2026-01-08
-# french-cooking: its slug extends french's; its newer stamp must not leak into french
-page learning-french-cooking-mission "Mission: French Cooking" 2026-01-10 $'- Pace: 1 session a week'
+# french-cooking: its slug extends french's; its newer stamps must not leak into french
+page learning-french-cooking-mission "Mission: French Cooking" 2026-01-01 $'- Pace: 1 session a week'
+page learning-french-cooking-record-0001-knives "Knives" 2026-01-10
 # chess: no Pace line
-page learning-chess-mission "Mission: Chess" 2026-01-09 $'## Constraints\n- Short lessons'
+page learning-chess-mission "Mission: Chess" 2026-01-01 $'## Constraints\n- Short lessons'
+page learning-chess-glossary "Chess Glossary" 2026-01-09
+# go: only a mission page, edited recently — a mission edit is admin, not a session
+page learning-go-mission "Mission: Go" 2026-01-10 $'## Constraints\n- Pace: 1 session a week'
 
 BEFORE=$(cat "$W"/*.md | shasum)
 
 EXPECT=$'chess\tChess\t2026-01-09\t-\t1\tno-pace
 french\tFrench\t2026-01-08\t2\t2\tok
 french-cooking\tFrench Cooking\t2026-01-10\t1\t0\tok
+go\tGo\t-\t1\t-\tunknown
 rust\tRust\t2026-01-01\t1\t9\toverdue'
 GOT=$(LEARNING_TODAY=2026-01-10 learning_status | LC_ALL=C sort)
-assert_eq "$EXPECT" "$GOT" "newest stamp per topic, pace from the mission, overdue past 7/N days"
+assert_eq "$EXPECT" "$GOT" "newest session stamp per topic (mission excluded), pace from the mission, overdue past 7/N days"
 
 # boundaries: pace 1 allows 7 days, pace 2 allows 4 (7/2 rounded up)
 GOT=$(LEARNING_TODAY=2026-01-08 learning_status | grep '^rust' | cut -f5,6)

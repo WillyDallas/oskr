@@ -166,8 +166,9 @@ _learning_days_between() {
 # Echo one line per topic for the /teach status view:
 #   "<slug>\t<name>\t<last>\t<pace>\t<days>\t<state>"
 # <last> is the newest version-stamp date (line 2, `> Written YYYY-MM-DD`) across the
-# topic's own pages — mission, resources, glossary, records. Every seam write
-# (record, glossary, resource mark) refreshes a stamp, so it dates the last session.
+# topic's session pages — resources, glossary, records. A session's seam writes
+# (resource mark, glossary update, record) refresh those stamps, so the newest dates
+# the last session. The mission page is left out: editing it is admin, not study.
 # Pages are matched by exact suffix, so a topic whose slug extends another's
 # (french vs french-cooking) never lends it a date. <pace> is N from the mission's
 # `Pace: N sessions a week` line. <state> is overdue (days since <last> exceed 7/N,
@@ -184,8 +185,8 @@ learning_status() {
   today=${LEARNING_TODAY:-$(date +%F)}
   learning_list_topics | while IFS=$'\t' read -r slug name; do
     last=""
-    for page in "$wiki/learning-${slug}-mission.md" "$wiki/learning-${slug}-resources.md" \
-                "$wiki/learning-${slug}-glossary.md" "$wiki/learning-${slug}-record-"[0-9][0-9][0-9][0-9]-*.md; do
+    for page in "$wiki/learning-${slug}-resources.md" "$wiki/learning-${slug}-glossary.md" \
+                "$wiki/learning-${slug}-record-"[0-9][0-9][0-9][0-9]-*.md; do
       [[ -e "$page" ]] || continue        # bash 3.2: skip an unexpanded glob
       stamp=$(sed -nE '2s/^> Written ([0-9]{4}-[0-9]{2}-[0-9]{2}) .*/\1/p' "$page")
       if [[ "$stamp" > "$last" ]]; then last="$stamp"; fi
