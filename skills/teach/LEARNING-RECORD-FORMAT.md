@@ -17,7 +17,15 @@ development.
 
 A record can be a single paragraph. Optional sections only when they add value:
 **Status** (`active | superseded by record-NNNN`), **Evidence** (how the user
-demonstrated the understanding), **Implications** (what this unlocks or rules out).
+demonstrated the understanding), **Implications** (what this unlocks or rules out),
+**Open** (chat-round questions the user moved past unanswered).
+
+## Open questions
+
+A question the user moves past unanswered goes under **Open** in this session's
+record — or, when the gate wrote none, in the topic's latest record via
+`hjarne_write_page`. The next chat round's **spaced** slot asks it first; once asked,
+rewrite that record to strike it from **Open**.
 
 ## Numbering
 

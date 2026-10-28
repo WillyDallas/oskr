@@ -150,3 +150,61 @@ learning_resource_mark() {
   ' "$page")
   hjarne_write_page "$page" "$content"
 }
+
+# Whole days from <from> to <to> (both YYYY-MM-DD), computed at UTC midnight so DST
+# never shaves a day. BSD date (macOS) first, GNU date as the fallback. Private.
+# _learning_days_between <from> <to>
+_learning_days_between() {
+  local from="$1" to="$2" a b
+  a=$(TZ=UTC date -j -f '%Y-%m-%d %H:%M:%S' "$from 00:00:00" +%s 2>/dev/null) \
+    || a=$(TZ=UTC date -d "$from" +%s 2>/dev/null) || return 1
+  b=$(TZ=UTC date -j -f '%Y-%m-%d %H:%M:%S' "$to 00:00:00" +%s 2>/dev/null) \
+    || b=$(TZ=UTC date -d "$to" +%s 2>/dev/null) || return 1
+  echo $(( (b - a) / 86400 ))
+}
+
+# Echo one line per topic for the /teach status view:
+#   "<slug>\t<name>\t<last>\t<pace>\t<days>\t<state>"
+# <last> is the newest version-stamp date (line 2, `> Written YYYY-MM-DD`) across the
+# topic's session pages — resources, glossary, records. A session's seam writes
+# (resource mark, glossary update, record) refresh those stamps, so the newest dates
+# the last session. The mission page is left out: editing it is admin, not study.
+# Pages are matched by exact suffix, so a topic whose slug extends another's
+# (french vs french-cooking) never lends it a date. <pace> is N from the mission's
+# `Pace: N sessions a week` line. <state> is overdue (days since <last> exceed 7/N,
+# rounded up), ok, no-pace (no Pace line; <pace> is "-"), or unknown (no stamp).
+# LEARNING_TODAY=YYYY-MM-DD overrides today, for tests. READ-ONLY; empty output +
+# exit 0 when there are no topics.
+# learning_status
+learning_status() {
+  # state, not status: zsh's $status is read-only (see learning_resource_mark).
+  local wiki today slug name page stamp last pace days limit state
+  if [[ -n "${ZSH_VERSION:-}" ]]; then setopt local_options null_glob; fi
+  wiki="$(hjarne_resolve_brain 2>/dev/null)/wiki" || return 0
+  [[ -d "$wiki" ]] || return 0
+  today=${LEARNING_TODAY:-$(date +%F)}
+  learning_list_topics | while IFS=$'\t' read -r slug name; do
+    last=""
+    for page in "$wiki/learning-${slug}-resources.md" "$wiki/learning-${slug}-glossary.md" \
+                "$wiki/learning-${slug}-record-"[0-9][0-9][0-9][0-9]-*.md; do
+      [[ -e "$page" ]] || continue        # bash 3.2: skip an unexpanded glob
+      stamp=$(sed -nE '2s/^> Written ([0-9]{4}-[0-9]{2}-[0-9]{2}) .*/\1/p' "$page")
+      if [[ "$stamp" > "$last" ]]; then last="$stamp"; fi
+    done
+    pace=$(awk '/^[-*[:space:]]*Pace:/ && match($0, /Pace:[[:space:]]*[0-9]+/) {
+      s = substr($0, RSTART, RLENGTH); gsub(/[^0-9]/, "", s); print s; exit
+    }' "$wiki/learning-${slug}-mission.md")
+    [[ "$pace" =~ ^[1-9][0-9]*$ ]] || pace="-"
+    days="-"
+    [[ -n "$last" ]] && days=$(_learning_days_between "$last" "$today") || days="-"
+    if [[ -z "$last" || "$days" == "-" ]]; then
+      last="-"; days="-"; state="unknown"
+    elif [[ "$pace" == "-" ]]; then
+      state="no-pace"
+    else
+      limit=$(( (7 + pace - 1) / pace ))
+      if (( days > limit )); then state="overdue"; else state="ok"; fi
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$slug" "$name" "$last" "$pace" "$days" "$state"
+  done
+}
