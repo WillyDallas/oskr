@@ -118,13 +118,34 @@ supplied resource has an id, a How-to-use instruction, and `status=queued`.
 ## Step 2 — The teaching loop (every session)
 
 1. **Read state first**: the mission page, learning records, glossary, and the queue
-   (`learning_resource_status "<topic>" <id>` per resource). Compute the zone of
-   proximal development from the records — never from parametric memory of the user.
-2. **Ingest before teaching**: pick the next `queued` resource whose How-to-use fits
-   the lesson, read/fetch it as its instruction says, then
+   (`learning_resource_status "<topic>" <id>` per resource). From the mission and the
+   records, pick the lesson's target idea and estimate the zone of proximal
+   development — never from parametric memory of the user. The records say what was
+   demonstrated last time, not where the next lesson's prerequisites break: treat the
+   estimate as a hypothesis the probe round tests.
+2. **Probe round** — before any resource is read or a line of the lesson is written.
+   List the two or three ideas the target rests on (its strands). For each strand no
+   record settles ("lessons can assume X from here" settles X), ask one question in
+   chat, answered in the user's own words, no options, one at a time. Enter near the
+   hardest thing the lesson needs, not at the basics; the records and the mission's
+   constraints calibrate how high that is.
+   - right → the strand is held; move to the next strand
+   - wrong or "don't know" → one easier question on the same strand, to find where it
+     breaks
+   Two to four questions in all. Say right or wrong in a word and move on — the probe
+   measures, it does not teach; the explanation belongs in the lesson, grounded in
+   its resources. Then:
+   - held strands are assumed, never re-taught
+   - the lowest broken strand sets where the lesson starts
+   - a wrong answer given without hedging is a misconception: the lesson names and
+     repairs it before building on it
+   - a user who already holds the target idea gets the next target, and a fresh probe
+   Prior knowledge shown here passes the record gate like chat-round evidence does.
+3. **Ingest before teaching**: pick the next `queued` resource whose How-to-use fits
+   the lesson the probe shaped, read/fetch it as its instruction says, then
    `learning_resource_mark "<topic>" <id> ingested`. Ground the lesson in ingested
    resources, with citations — never in parametric knowledge alone.
-3. **Author the lesson**: one self-contained HTML file at
+4. **Author the lesson**: one self-contained HTML file at
    `$TOPIC_DIR/lessons/NNNN-<dash-case-name>.html` (NNNN increments). Short, beautiful
    (think Tufte), one tangible win, tied to the mission, inside the user's zone of
    proximal development. Reuse components from `$TOPIC_DIR/assets/` (a shared
@@ -133,15 +154,15 @@ supplied resource has an id, a How-to-use instruction, and `status=queued`.
    and nowhere else — never in the brain, never in the repo. The lesson ends with a
    quiz built per [QUIZ-FORMAT.md](./QUIZ-FORMAT.md) — read it before writing any
    quiz. A "Try it" exercise is exploration: never ask the user to report its results.
-4. **Open it for the user**: `open "$TOPIC_DIR/lessons/NNNN-<dash-case-name>.html"`,
+5. **Open it for the user**: `open "$TOPIC_DIR/lessons/NNNN-<dash-case-name>.html"`,
    and ask them to paste the quiz's results line into the session when done.
-5. **Chat round** — once the results line arrives, before any new lesson. Ask one
+6. **Chat round** — once the results line arrives, before any new lesson. Ask one
    question at a time, answered in the user's own words (no options), with immediate
    feedback after each. At least three, one per slot:
    - **miss** — a wrong pick from the results line; none → the lesson's hardest idea
    - **transfer** — the idea applied to a case the lesson did not show
-   - **spaced** — an earlier lesson's idea; a record's **Open** question claims this
-     slot first
+   - **spaced** — an earlier lesson's idea the probe round did not ask; a record's
+     **Open** question claims this slot first
 
    Keep asking while answers still reveal something — a miss, a shaky answer, wording
    that drifts from the glossary (correct the wording even when the answer is right).
@@ -149,9 +170,10 @@ supplied resource has an id, a How-to-use instruction, and `status=queued`.
    or at about six questions; the user's "more" or "stop" overrides. A question the user moves past unanswered
    goes under **Open** in a record (per LEARNING-RECORD-FORMAT.md).
 
-Done when: the lesson file exists under `$TOPIC_DIR/lessons/`, was opened for the
-user, every resource the lesson drew on is marked `ingested`, and the chat round hit
-its stop rule — or its unanswered question is saved under **Open**.
+Done when: the probe round settled every strand the lesson rests on, the lesson file
+exists under `$TOPIC_DIR/lessons/`, was opened for the user, every resource the lesson
+drew on is marked `ingested`, and the chat round hit its stop rule — or its unanswered
+question is saved under **Open**.
 
 ## Write gates — records and glossary
 
@@ -160,7 +182,8 @@ Both are gated on **demonstrated understanding**, not coverage:
 - **Learning record** (`learning/<topic>:record-NNNN-<slug>`): write one only when the
   user demonstrably understood something non-trivial, disclosed prior knowledge,
   corrected a misconception, or the mission shifted (per LEARNING-RECORD-FORMAT.md).
-  The evidence is chat-round answers; a quiz score alone never passes the gate.
+  The evidence is probe-round or chat-round answers; a quiz score alone never passes
+  the gate.
   NNNN = highest existing record number for the topic, plus one.
 - **Glossary term**: promote a term only when the user can use it correctly.
 - **Supersede, never delete**: when a later record contradicts an earlier one, rewrite
